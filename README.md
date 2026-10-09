@@ -49,26 +49,6 @@ dates and is tested against January, June and December year-ends.
 Where a comparison can't be made — period not yet reported, no EPS on file —
 nothing is emitted. A false mismatch is worse than a missed one.
 
-## What the free API tier actually allows
-
-Worth stating plainly, because it shaped the design. On a free AlphaVantage key
-only `EARNINGS` and `GLOBAL_QUOTE` respond; `COMPANY_OVERVIEW` and
-`INCOME_STATEMENT` return a premium notice with an HTTP 200, which is its own
-trap — a rate-limit body parsed as data looks like a company with no revenue.
-The client raises on those bodies instead.
-
-Consequences:
-
-- **P/E is the only multiple computable end to end on a free key**, from
-  `GLOBAL_QUOTE` price over trailing four-quarter reported EPS.
-- P/S and EV/EBITDA are implemented but return `None` without a premium key,
-  and say why rather than guessing.
-- Sector data is premium-gated too, so peer sets come from a static map in
-  `valuation/peers.py` rather than being derived.
-
-Peer multiples use the median, not the mean — one peer at a 300x P/E shouldn't
-move the comparison.
-
 ## Providers
 
 Extraction runs against either backend behind one interface:
