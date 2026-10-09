@@ -1,0 +1,108 @@
+{
+  "transcript_id": "NVDA-2020Q4",
+  "ticker": "NVDA",
+  "labeled_from": "Prepared remarks, CFO outlook paragraph beginning 'let me turn the outlook for the first quarter of fiscal 2021'.",
+  "notes": "Every figure here is guidance for FY2021Q1, given on the FY2020Q4 call (2020-02-13). NVDA has a January fiscal year end, so the fiscal year guided is the one closing January 2021. 'Plus or minus 50 basis points' is +/-0.5 percentage points, applied to each basis separately -- GAAP 65% becomes 64.5-65.5 and non-GAAP 65.4% becomes 64.9-65.9. OI&E has no dedicated metric in the enum, so it is labeled 'other' with a metric_detail.",
+  "items": [
+    {
+      "metric": "revenue",
+      "metric_detail": null,
+      "basis": "unspecified",
+      "period_label": "FY2021Q1",
+      "low": 2.94,
+      "high": 3.06,
+      "unit": "usd_billions",
+      "source": "We expect revenue to be $3 billion plus or minus 2%."
+    },
+    {
+      "metric": "gross_margin",
+      "metric_detail": null,
+      "basis": "gaap",
+      "period_label": "FY2021Q1",
+      "low": 64.5,
+      "high": 65.5,
+      "unit": "percent",
+      "source": "GAAP and non-GAAP gross margins are expected to be 65% and 65.4% respectively plus or minus 50 basis points."
+    },
+    {
+      "metric": "gross_margin",
+      "metric_detail": null,
+      "basis": "non_gaap",
+      "period_label": "FY2021Q1",
+      "low": 64.9,
+      "high": 65.9,
+      "unit": "percent",
+      "source": "GAAP and non-GAAP gross margins are expected to be 65% and 65.4% respectively plus or minus 50 basis points."
+    },
+    {
+      "metric": "opex",
+      "metric_detail": null,
+      "basis": "gaap",
+      "period_label": "FY2021Q1",
+      "low": 1.05,
+      "high": 1.05,
+      "unit": "usd_billions",
+      "source": "GAAP and non-GAAP operating expenses are expected to be approximately $1.05 billion and $835 million respectively."
+    },
+    {
+      "metric": "opex",
+      "metric_detail": null,
+      "basis": "non_gaap",
+      "period_label": "FY2021Q1",
+      "low": 835.0,
+      "high": 835.0,
+      "unit": "usd_millions",
+      "source": "GAAP and non-GAAP operating expenses are expected to be approximately $1.05 billion and $835 million respectively."
+    },
+    {
+      "metric": "other",
+      "metric_detail": "OI&E",
+      "basis": "gaap",
+      "period_label": "FY2021Q1",
+      "low": 25.0,
+      "high": 25.0,
+      "unit": "usd_millions",
+      "source": "GAAP and non-GAAP OI&E are both expected to be income of approximately $25 million."
+    },
+    {
+      "metric": "other",
+      "metric_detail": "OI&E",
+      "basis": "non_gaap",
+      "period_label": "FY2021Q1",
+      "low": 25.0,
+      "high": 25.0,
+      "unit": "usd_millions",
+      "source": "GAAP and non-GAAP OI&E are both expected to be income of approximately $25 million."
+    },
+    {
+      "metric": "tax_rate",
+      "metric_detail": null,
+      "basis": "gaap",
+      "period_label": "FY2021Q1",
+      "low": 8.0,
+      "high": 10.0,
+      "unit": "percent",
+      "source": "GAAP and non-GAAP tax rates are both expected to be 9% plus or minus 1% excluding discrete items."
+    },
+    {
+      "metric": "tax_rate",
+      "metric_detail": null,
+      "basis": "non_gaap",
+      "period_label": "FY2021Q1",
+      "low": 8.0,
+      "high": 10.0,
+      "unit": "percent",
+      "source": "GAAP and non-GAAP tax rates are both expected to be 9% plus or minus 1% excluding discrete items."
+    },
+    {
+      "metric": "capex",
+      "metric_detail": null,
+      "basis": "unspecified",
+      "period_label": "FY2021Q1",
+      "low": 150.0,
+      "high": 170.0,
+      "unit": "usd_millions",
+      "source": "Capital expenditures are expected to be approximately $150 million to $170 million."
+    }
+  ]
+}

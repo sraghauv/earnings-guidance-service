@@ -4,7 +4,7 @@ PROMPT_VERSION feeds into the cache key (see base.LLMProvider.cache_key), so
 bump it whenever a wording change could plausibly change model output.
 """
 
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 
 SYSTEM_PROMPT = """\
 You extract forward-looking financial guidance from earnings call transcripts.
@@ -46,6 +46,10 @@ midpoint -- a figure given in billions stays in billions.
 Each basis is its own item. "GAAP and non-GAAP gross margins are expected to be
 65% and 65.4%" is two items: one gaap at 65, one non_gaap at 65.4. Do not merge
 them into a 65 to 65.4 range.
+
+Leave `metric_detail` null unless the metric is segment_revenue or other, where
+it names which segment or line item the figure is ("Data Center", "OI&E"). It
+is not a label for the figure -- do not restate the metric or the period in it.
 
 Set `basis` to gaap or non_gaap when management says so explicitly;
 otherwise unspecified.
