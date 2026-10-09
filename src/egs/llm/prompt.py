@@ -4,7 +4,7 @@ PROMPT_VERSION feeds into the cache key (see base.LLMProvider.cache_key), so
 bump it whenever a wording change could plausibly change model output.
 """
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v4"
 
 SYSTEM_PROMPT = """\
 You extract forward-looking financial guidance from earnings call transcripts.
@@ -38,6 +38,14 @@ usd_billions, usd_per_share, percent, ratio. If management says "$2.5
 billion to $2.7 billion", unit is usd_billions with low=2.5, high=2.7. A
 one-sided bound ("at least $2 billion") sets only low or only high, leaving
 the other null. A point estimate sets low and high to the same value.
+
+"Plus or minus" states a midpoint and a tolerance: "$3 billion plus or minus
+2%" means low=2.94 and high=3.06 in usd_billions. Keep the unit of the stated
+midpoint -- a figure given in billions stays in billions.
+
+Each basis is its own item. "GAAP and non-GAAP gross margins are expected to be
+65% and 65.4%" is two items: one gaap at 65, one non_gaap at 65.4. Do not merge
+them into a 65 to 65.4 range.
 
 Set `basis` to gaap or non_gaap when management says so explicitly;
 otherwise unspecified.

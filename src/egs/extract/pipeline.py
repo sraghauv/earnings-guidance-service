@@ -15,8 +15,9 @@ from egs import db
 from egs.config import get_settings
 from egs.llm import cache
 from egs.llm.base import SCHEMA_VERSION, LLMProvider, ProviderError
+from egs.extract.windows import guidance_windows
 from egs.llm.prompt import PROMPT_VERSION, SYSTEM_PROMPT, build_user_prompt
-from egs.schemas import GuidanceExtraction, Transcript
+from egs.schemas import GuidanceExtraction, GuidanceItem, Transcript
 
 
 class RepairExhaustedError(RuntimeError):
@@ -63,6 +64,70 @@ def drop_fabricated_quotes(
     return extraction, dropped
 
 
+def _extract_window(
+    window: str,
+    provider: LLMProvider,
+    schema: dict,
+    *,
+    max_repair: int,
+) -> tuple[GuidanceExtraction, int]:
+    """Extract one window, repairing schema failures up to `max_repair` times."""
+    repair_hint: str | None = None
+    attempts = 0
+    while True:
+        completion = provider.complete_json(
+            system=SYSTEM_PROMPT,
+            user=build_user_prompt(window),
+            schema=schema,
+            repair_hint=repair_hint,
+        )
+        try:
+            return GuidanceExtraction.model_validate_json(completion.text), attempts
+        except ValidationError as e:
+            if attempts >= max_repair:
+                raise RepairExhaustedError(
+                    f"no valid extraction after {attempts} repair attempts, "
+                    f"last error: {e}"
+                ) from e
+            attempts += 1
+            repair_hint = str(e)
+
+
+def _merge_windows(
+    extractions: list[GuidanceExtraction], *, ticker: str
+) -> GuidanceExtraction:
+    """Collapse per-window extractions into one.
+
+    Windows overlap, so the same figure legitimately arrives more than once.
+    Items are keyed on what identifies a figure rather than on its value --
+    metric, detail, period and basis -- and the highest-confidence parse wins,
+    breaking ties toward the longer quote as the better-supported one. Keeping
+    both parses of one figure would otherwise read downstream as a genuine
+    disagreement in the company's guidance, which it isn't.
+    """
+    best: dict[tuple, GuidanceItem] = {}
+    notes: list[str] = []
+    for extraction in extractions:
+        if extraction.extraction_notes:
+            notes.append(extraction.extraction_notes)
+        for item in extraction.items:
+            key = (item.metric, item.metric_detail, item.period.label(), item.basis)
+            current = best.get(key)
+            if current is None or (item.confidence, len(item.quote)) > (
+                current.confidence,
+                len(current.quote),
+            ):
+                best[key] = item
+
+    items = list(best.values())
+    return GuidanceExtraction(
+        ticker=ticker,
+        no_guidance_given=not items,
+        items=items,
+        extraction_notes="; ".join(notes) or None,
+    )
+
+
 def extract_guidance(
     transcript: Transcript,
     provider: LLMProvider,
@@ -86,28 +151,30 @@ def extract_guidance(
             )
 
     schema = GuidanceExtraction.model_json_schema()
-    repair_hint: str | None = None
-    extraction: GuidanceExtraction | None = None
+    windows = guidance_windows(transcript)
+    per_window: list[GuidanceExtraction] = []
     attempts = 0
+    last_error: Exception | None = None
 
-    while extraction is None:
-        completion = provider.complete_json(
-            system=SYSTEM_PROMPT,
-            user=user_prompt,
-            schema=schema,
-            repair_hint=repair_hint,
-        )
+    for window in windows:
         try:
-            extraction = GuidanceExtraction.model_validate_json(completion.text)
-        except ValidationError as e:
-            if attempts >= settings.max_repair_attempts:
-                raise RepairExhaustedError(
-                    f"transcript {transcript.id}: no valid extraction after "
-                    f"{attempts} repair attempts, last error: {e}"
-                ) from e
-            attempts += 1
-            repair_hint = str(e)
+            got, used = _extract_window(
+                window, provider, schema, max_repair=settings.max_repair_attempts
+            )
+        except (RepairExhaustedError, ProviderError) as e:
+            # One unreadable passage shouldn't discard the rest of the call.
+            last_error = e
+            continue
+        attempts += used
+        per_window.append(got)
 
+    if windows and not per_window:
+        raise RepairExhaustedError(
+            f"transcript {transcript.id}: every one of {len(windows)} windows "
+            f"failed, last error: {last_error}"
+        )
+
+    extraction = _merge_windows(per_window, ticker=transcript.ticker)
     extraction, dropped = drop_fabricated_quotes(extraction, transcript_text)
 
     if conn is not None:
