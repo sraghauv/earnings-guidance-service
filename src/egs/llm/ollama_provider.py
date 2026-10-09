@@ -12,6 +12,14 @@ from egs.llm.base import Completion, LLMProvider, ProviderError
 
 TIMEOUT = 300.0
 
+# Ollama defaults num_ctx to 2048, which silently truncates both the prompt and
+# the generation -- a full transcript runs about 12k tokens, so the default
+# produces cut-off JSON that looks like a model failure rather than a config
+# one. gemma3 handles far more than this; 32k leaves room for the transcript,
+# the schema and the answer.
+NUM_CTX = 32768
+NUM_PREDICT = 4096
+
 
 class OllamaProvider(LLMProvider):
     name = "ollama"
@@ -56,6 +64,11 @@ class OllamaProvider(LLMProvider):
                     "messages": messages,
                     "format": schema,
                     "stream": False,
+                    "options": {
+                        "num_ctx": NUM_CTX,
+                        "num_predict": NUM_PREDICT,
+                        "temperature": 0,
+                    },
                 },
                 timeout=TIMEOUT,
             )
@@ -75,6 +88,14 @@ class OllamaProvider(LLMProvider):
             raise ProviderError(
                 f"ollama response missing message.content: {body}"
             ) from e
+
+        # Hitting the generation cap leaves invalid JSON mid-string, so say so
+        # here rather than letting it surface as a confusing parse error.
+        if body.get("done_reason") == "length":
+            raise ProviderError(
+                f"ollama hit the {NUM_PREDICT} token generation cap; "
+                "output is truncated JSON"
+            )
 
         self._last_raw = text
         return Completion(text=text, input_tokens=None, output_tokens=None)
