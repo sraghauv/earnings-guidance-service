@@ -49,6 +49,42 @@ dates and is tested against January, June and December year-ends.
 Where a comparison can't be made — period not yet reported, no EPS on file —
 nothing is emitted. A false mismatch is worse than a missed one.
 
+## Windowing
+
+Feeding a whole call to the model does not work, and the failure is quiet: it
+reports no guidance at all rather than erroring. gemma3:4b returns
+`no_guidance_given` on a full NVDA call and then pulls all eight figures out of
+that same call's outlook paragraph. A transcript is about 12k tokens and the
+guidance occupies a few hundred of them.
+
+So `extract/windows.py` narrows the call first, from outlook cues where they
+exist and from ranked overlapping chunks where they don't, and the pipeline
+merges per-window results keyed on metric, detail, period and basis. Across 40
+real calls that is 4.2 windows each and 30% of the original text. Overlap means
+the same figure arrives more than once, and keying the merge on identity rather
+than value keeps that from reading downstream as the company contradicting
+itself.
+
+## How good is the extraction
+
+`scripts/eval_extraction.py` scores an extraction against hand-labeled calls in
+`tests/fixtures/eval/`. On NVDA-2020Q4 with gemma3:4b:
+
+```
+recall=0.20  precision=0.40  value_accuracy=0.50   (matched=2 missed=8 spurious=3)
+```
+
+That is a usable floor, not a good result, and worth being plain about: a 4B
+model gets the easy figures right — revenue $3B ±2% resolves correctly to
+2.94-3.06, capex to $150-170M — and then mislabels basis, assigns GAAP's gross
+margin range to non-GAAP, and misses OI&E entirely. The structural guarantees
+hold regardless of model: the schema rejects malformed output, unquoted figures
+get dropped, and the reconciliation pass still catches what survives.
+
+One labeled call is a very small sample, and runs vary a little even at
+temperature 0. The `claude-opus-5` provider is wired up but has not been
+measured, since that needs an API key.
+
 ## Providers
 
 Extraction runs against either backend behind one interface:
@@ -84,13 +120,14 @@ GET  /mismatches?ticker=NVDA&kind=vs_reported
 ```
 
 ```bash
-.venv/bin/pytest          # no keys, no network
+.venv/bin/pytest                             # no keys, no network
+python scripts/eval_extraction.py            # score against the labeled calls
 ```
 
 ## Still to do
 
-- Hand-label a sample of calls and score extraction precision/recall against
-  it. Right now correctness rests on the quote check and the reconciliation
-  pass, which is evidence but not a measurement.
+- Label more than one call. The harness exists and the numbers above are real,
+  but a single transcript is not a benchmark.
+- Measure `claude-opus-5` against the same gold set, which needs an API key.
 - Segment-level revenue guidance is extracted but not yet reconciled, since
   segment actuals aren't in the free endpoints.
