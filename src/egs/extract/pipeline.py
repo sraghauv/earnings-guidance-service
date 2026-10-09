@@ -93,7 +93,7 @@ def _extract_window(
             repair_hint = str(e)
 
 
-def _merge_windows(
+def merge_windows(
     extractions: list[GuidanceExtraction], *, ticker: str
 ) -> GuidanceExtraction:
     """Collapse per-window extractions into one.
@@ -174,7 +174,7 @@ def extract_guidance(
             f"failed, last error: {last_error}"
         )
 
-    extraction = _merge_windows(per_window, ticker=transcript.ticker)
+    extraction = merge_windows(per_window, ticker=transcript.ticker)
     extraction, dropped = drop_fabricated_quotes(extraction, transcript_text)
 
     if conn is not None:

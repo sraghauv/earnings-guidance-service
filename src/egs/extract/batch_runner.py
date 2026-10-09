@@ -1,11 +1,15 @@
 """Anthropic Message Batches job for extracting guidance from many
 transcripts at once, at 50% of the per-request price.
 
-There's no repair loop inside a batch -- the model gets one shot per
-transcript, since a batch request can't react to its own output. A
-transcript whose result fails schema validation comes back in `failures`
-instead of being retried; run it through `extract.pipeline.extract_guidance`
-afterward if you want the repair loop.
+One request per guidance window, not per transcript, matching what
+`extract.pipeline` does interactively -- a whole call is too much context and
+comes back empty. `custom_id` is "<transcript id>#<window index>" and the
+per-window results are merged back per transcript on collection.
+
+There's no repair loop inside a batch: a batch request can't react to its own
+output. A window whose result fails schema validation is dropped and noted in
+`failures`, and the transcript still keeps whatever its other windows
+returned. Re-run a transcript through `extract_guidance` if you want repair.
 """
 
 import sqlite3
@@ -23,7 +27,9 @@ from egs.extract.pipeline import (
     ExtractionResult,
     drop_fabricated_quotes,
     full_text,
+    merge_windows,
 )
+from egs.extract.windows import guidance_windows
 from egs.llm.anthropic_provider import MAX_TOKENS
 from egs.llm.base import SCHEMA_VERSION
 from egs.llm.prompt import PROMPT_VERSION, SYSTEM_PROMPT, build_user_prompt
@@ -46,20 +52,24 @@ def submit_batch(
 
     requests = [
         Request(
-            custom_id=t.id,
+            custom_id=f"{t.id}#{i}",
             params=MessageCreateParamsNonStreaming(
                 model=model,
                 max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
                 thinking={"type": "adaptive"},
                 output_config={"format": {"type": "json_schema", "schema": schema}},
-                messages=[
-                    {"role": "user", "content": build_user_prompt(full_text(t))}
-                ],
+                messages=[{"role": "user", "content": build_user_prompt(window)}],
             ),
         )
         for t in transcripts
+        for i, window in enumerate(guidance_windows(t))
     ]
+    if not requests:
+        raise ValueError(
+            f"none of the {len(transcripts)} transcripts produced a guidance "
+            "window, so there is nothing to submit"
+        )
     batch = client.messages.batches.create(requests=requests)
     return batch.id
 
@@ -88,17 +98,22 @@ def collect_results(
     client: anthropic.Anthropic | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> tuple[list[ExtractionResult], list[BatchFailure]]:
-    """Validate and persist every result. Batch results arrive in no
-    particular order, so match on `custom_id`, never on position."""
+    """Validate per-window results, merge them per transcript, and persist.
+
+    Batch results arrive in no particular order, so everything is keyed on
+    `custom_id` and grouped afterward -- never matched by position.
+    """
     settings = get_settings()
     client = client or anthropic.Anthropic(api_key=settings.anthropic_api_key)
     by_id = {t.id: t for t in transcripts}
 
-    results: list[ExtractionResult] = []
+    per_transcript: dict[str, list[GuidanceExtraction]] = {}
     failures: list[BatchFailure] = []
+    model_used: dict[str, str] = {}
 
     for result in client.messages.batches.results(batch_id):
-        transcript = by_id.get(result.custom_id)
+        transcript_id, _, window_index = result.custom_id.partition("#")
+        transcript = by_id.get(transcript_id)
         if transcript is None:
             failures.append(
                 BatchFailure(
@@ -108,21 +123,32 @@ def collect_results(
             )
             continue
 
+        where = f"window {window_index}" if window_index else "whole transcript"
+
         if result.result.type != "succeeded":
             failures.append(
                 BatchFailure(
                     transcript_id=transcript.id,
-                    error=f"batch result was {result.result.type}",
+                    error=f"{where}: batch result was {result.result.type}",
                 )
             )
             continue
 
         message = result.result.message
+        if message.stop_reason == "refusal":
+            failures.append(
+                BatchFailure(
+                    transcript_id=transcript.id, error=f"{where}: model declined"
+                )
+            )
+            continue
+
         text = next((b.text for b in message.content if b.type == "text"), None)
         if text is None:
             failures.append(
                 BatchFailure(
-                    transcript_id=transcript.id, error="no text block in response"
+                    transcript_id=transcript.id,
+                    error=f"{where}: no text block in response",
                 )
             )
             continue
@@ -133,11 +159,18 @@ def collect_results(
             failures.append(
                 BatchFailure(
                     transcript_id=transcript.id,
-                    error=f"schema validation failed: {e}",
+                    error=f"{where}: schema validation failed: {e}",
                 )
             )
             continue
 
+        per_transcript.setdefault(transcript.id, []).append(extraction)
+        model_used[transcript.id] = message.model
+
+    results: list[ExtractionResult] = []
+    for transcript_id, extractions in per_transcript.items():
+        transcript = by_id[transcript_id]
+        extraction = merge_windows(extractions, ticker=transcript.ticker)
         extraction, dropped = drop_fabricated_quotes(extraction, full_text(transcript))
 
         if conn is not None:
@@ -146,7 +179,7 @@ def collect_results(
                 transcript.id,
                 extraction,
                 provider="anthropic",
-                model=message.model,
+                model=model_used.get(transcript.id, "unknown"),
                 prompt_version=PROMPT_VERSION,
                 schema_version=SCHEMA_VERSION,
                 cache_key=f"batch:{batch_id}:{transcript.id}",
