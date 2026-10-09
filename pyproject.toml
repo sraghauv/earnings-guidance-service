@@ -1,0 +1,29 @@
+[project]
+name = "earnings-guidance-service"
+version = "0.1.0"
+description = "Extracts forward guidance from earnings call transcripts and runs a peer-multiple valuation off it."
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.12",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.4",
+    "pyarrow>=17.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"

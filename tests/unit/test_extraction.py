@@ -1,0 +1,149 @@
+"""Extraction pipeline tests. No network, no API key -- FixtureProvider
+replays canned JSON instead of calling a real model.
+"""
+
+from pathlib import Path
+
+import pytest
+
+from egs.config import Settings
+from egs.db import load_items, upsert_transcript
+from egs.extract import pipeline
+from egs.llm.fixture_provider import FixtureProvider
+
+FIXTURES = Path(__file__).parent.parent / "fixtures" / "llm"
+
+
+def _settings(tmp_path, **overrides) -> Settings:
+    return Settings(cache_dir=tmp_path / "cache", **overrides)
+
+
+def _patch_settings(monkeypatch, settings: Settings) -> None:
+    monkeypatch.setattr(pipeline, "get_settings", lambda: settings)
+
+
+def test_clean_extraction_persists_items(monkeypatch, tmp_path, tmp_db, sample_transcript):
+    _patch_settings(monkeypatch, _settings(tmp_path))
+    upsert_transcript(tmp_db, sample_transcript)
+    provider = FixtureProvider(FIXTURES, mapping={})
+    user_prompt = pipeline.build_user_prompt(pipeline.full_text(sample_transcript))
+    provider.mapping[user_prompt] = "clean.json"
+
+    result = pipeline.extract_guidance(
+        sample_transcript, provider, conn=tmp_db, use_cache=False
+    )
+
+    assert result.repair_attempts == 0
+    assert result.cache_hit is False
+    assert result.dropped_items == 0
+    assert len(result.extraction.items) == 1
+    assert result.extraction.items[0].metric.value == "revenue"
+
+    stored = load_items(tmp_db, "NVDA")
+    assert len(stored) == 1
+    assert stored[0].period.label() == "FY2026Q3"
+
+
+def test_inverted_bounds_is_repaired(monkeypatch, tmp_path, tmp_db, sample_transcript):
+    _patch_settings(monkeypatch, _settings(tmp_path, max_repair_attempts=2))
+    upsert_transcript(tmp_db, sample_transcript)
+    provider = FixtureProvider(FIXTURES)
+    user_prompt = pipeline.build_user_prompt(pipeline.full_text(sample_transcript))
+    provider.mapping[user_prompt] = ["malformed_bounds.json", "repaired.json"]
+
+    result = pipeline.extract_guidance(
+        sample_transcript, provider, conn=tmp_db, use_cache=False
+    )
+
+    assert result.repair_attempts == 1
+    assert provider.calls == 2
+    assert result.extraction.items[0].low == 32.0
+    assert result.extraction.items[0].high == 33.0
+
+
+def test_repair_exhaustion_raises(monkeypatch, tmp_path, tmp_db, sample_transcript):
+    _patch_settings(monkeypatch, _settings(tmp_path, max_repair_attempts=1))
+    provider = FixtureProvider(FIXTURES)
+    user_prompt = pipeline.build_user_prompt(pipeline.full_text(sample_transcript))
+    # Always the same bad response -- nothing ever fixes it.
+    provider.mapping[user_prompt] = "malformed_bounds.json"
+
+    with pytest.raises(pipeline.RepairExhaustedError):
+        pipeline.extract_guidance(sample_transcript, provider, conn=tmp_db, use_cache=False)
+
+    # one initial attempt, one repair attempt, then give up
+    assert provider.calls == 2
+
+
+def test_no_guidance_given_with_items_rejected(monkeypatch, tmp_path, tmp_db, sample_transcript):
+    _patch_settings(monkeypatch, _settings(tmp_path, max_repair_attempts=0))
+    provider = FixtureProvider(FIXTURES)
+    user_prompt = pipeline.build_user_prompt(pipeline.full_text(sample_transcript))
+    provider.mapping[user_prompt] = "malformed_no_guidance_with_items.json"
+
+    with pytest.raises(pipeline.RepairExhaustedError, match="no_guidance_given"):
+        pipeline.extract_guidance(sample_transcript, provider, conn=tmp_db, use_cache=False)
+
+    assert provider.calls == 1
+
+
+def test_fabricated_quote_dropped(monkeypatch, tmp_path, tmp_db, sample_transcript):
+    _patch_settings(monkeypatch, _settings(tmp_path))
+    upsert_transcript(tmp_db, sample_transcript)
+    provider = FixtureProvider(FIXTURES)
+    user_prompt = pipeline.build_user_prompt(pipeline.full_text(sample_transcript))
+    provider.mapping[user_prompt] = "fabricated_quote.json"
+
+    result = pipeline.extract_guidance(
+        sample_transcript, provider, conn=tmp_db, use_cache=False
+    )
+
+    assert result.dropped_items == 1
+    assert len(result.extraction.items) == 1
+    assert result.extraction.items[0].metric.value == "revenue"
+    # the surviving item's quote really is in the transcript
+    assert result.extraction.items[0].quote in sample_transcript.prepared_remarks
+
+
+def test_cache_hit_avoids_second_provider_call(monkeypatch, tmp_path, tmp_db, sample_transcript):
+    _patch_settings(monkeypatch, _settings(tmp_path))
+    upsert_transcript(tmp_db, sample_transcript)
+    provider = FixtureProvider(FIXTURES)
+    user_prompt = pipeline.build_user_prompt(pipeline.full_text(sample_transcript))
+    provider.mapping[user_prompt] = "clean.json"
+
+    first = pipeline.extract_guidance(sample_transcript, provider, conn=tmp_db, use_cache=True)
+    second = pipeline.extract_guidance(sample_transcript, provider, conn=tmp_db, use_cache=True)
+
+    assert first.cache_hit is False
+    assert second.cache_hit is True
+    assert provider.calls == 1
+    assert second.extraction.items == first.extraction.items
+
+
+def test_extract_many_collects_failures_without_aborting(
+    monkeypatch, tmp_path, tmp_db, sample_transcript
+):
+    _patch_settings(monkeypatch, _settings(tmp_path, max_repair_attempts=0))
+    upsert_transcript(tmp_db, sample_transcript)
+    broken = sample_transcript.model_copy(
+        update={
+            "id": "NVDA-2026Q3-broken",
+            "prepared_remarks": "Thanks for joining. We expect Q4 revenue of $40 billion.",
+        }
+    )
+    upsert_transcript(tmp_db, broken)
+    provider = FixtureProvider(FIXTURES)
+
+    good_prompt = pipeline.build_user_prompt(pipeline.full_text(sample_transcript))
+    bad_prompt = pipeline.build_user_prompt(pipeline.full_text(broken))
+    provider.mapping[good_prompt] = "clean.json"
+    provider.mapping[bad_prompt] = "malformed_bounds.json"
+
+    results, failures = pipeline.extract_many(
+        [sample_transcript, broken], provider, conn=tmp_db, use_cache=False
+    )
+
+    assert len(results) == 1
+    assert len(failures) == 1
+    assert failures[0].transcript_id == "NVDA-2026Q3-broken"

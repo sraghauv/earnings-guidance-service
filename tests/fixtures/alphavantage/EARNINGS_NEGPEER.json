@@ -1,0 +1,12 @@
+{
+  "symbol": "NEGPEER",
+  "annualEarnings": [
+    {"fiscalDateEnding": "2026-01-31", "reportedEPS": "-1.55"}
+  ],
+  "quarterlyEarnings": [
+    {"fiscalDateEnding": "2026-07-31", "reportedDate": "2026-08-20", "reportedEPS": "-0.50", "estimatedEPS": "-0.30", "surprise": "-0.20", "surprisePercentage": "-66.6667", "reportTime": "post-market"},
+    {"fiscalDateEnding": "2026-04-30", "reportedDate": "2026-05-15", "reportedEPS": "-0.40", "estimatedEPS": "-0.25", "surprise": "-0.15", "surprisePercentage": "-60.0", "reportTime": "post-market"},
+    {"fiscalDateEnding": "2026-01-31", "reportedDate": "2026-02-20", "reportedEPS": "-0.35", "estimatedEPS": "-0.20", "surprise": "-0.15", "surprisePercentage": "-75.0", "reportTime": "post-market"},
+    {"fiscalDateEnding": "2025-10-31", "reportedDate": "2025-11-14", "reportedEPS": "-0.30", "estimatedEPS": "-0.15", "surprise": "-0.15", "surprisePercentage": "-100.0", "reportTime": "post-market"}
+  ]
+}

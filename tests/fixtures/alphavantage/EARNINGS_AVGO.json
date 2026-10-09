@@ -1,0 +1,47 @@
+{
+  "symbol": "AVGO",
+  "annualEarnings": [
+    {
+      "fiscalDateEnding": "2026-01-31",
+      "reportedEPS": "6.49"
+    }
+  ],
+  "quarterlyEarnings": [
+    {
+      "fiscalDateEnding": "2026-07-31",
+      "reportedDate": "2026-08-26",
+      "reportedEPS": "1.78",
+      "estimatedEPS": "1.78",
+      "surprise": "0",
+      "surprisePercentage": "0",
+      "reportTime": "post-market"
+    },
+    {
+      "fiscalDateEnding": "2026-04-30",
+      "reportedDate": "2026-05-20",
+      "reportedEPS": "1.69",
+      "estimatedEPS": "1.69",
+      "surprise": "0",
+      "surprisePercentage": "0",
+      "reportTime": "post-market"
+    },
+    {
+      "fiscalDateEnding": "2026-01-31",
+      "reportedDate": "2026-02-25",
+      "reportedEPS": "1.60",
+      "estimatedEPS": "1.60",
+      "surprise": "0",
+      "surprisePercentage": "0",
+      "reportTime": "post-market"
+    },
+    {
+      "fiscalDateEnding": "2025-10-31",
+      "reportedDate": "2025-11-19",
+      "reportedEPS": "1.42",
+      "estimatedEPS": "1.42",
+      "surprise": "0",
+      "surprisePercentage": "0",
+      "reportTime": "post-market"
+    }
+  ]
+}

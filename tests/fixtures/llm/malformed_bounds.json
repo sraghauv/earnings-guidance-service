@@ -1,0 +1,19 @@
+{
+  "ticker": "NVDA",
+  "no_guidance_given": false,
+  "items": [
+    {
+      "metric": "revenue",
+      "metric_detail": null,
+      "period": {"kind": "quarter", "fiscal_year": 2026, "fiscal_quarter": 3},
+      "low": 33.0,
+      "high": 32.0,
+      "unit": "usd_billions",
+      "basis": "unspecified",
+      "quote": "For Q3, we expect revenue of $32.0 billion to $33.0 billion.",
+      "speaker": null,
+      "confidence": 0.9
+    }
+  ],
+  "extraction_notes": null
+}

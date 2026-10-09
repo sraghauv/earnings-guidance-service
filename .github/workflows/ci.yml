@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    env:
+      # No secrets are configured for this job on purpose. fixture never
+      # touches the network or needs an API key, so the suite has to pass
+      # with neither ANTHROPIC_API_KEY nor ALPHAVANTAGE_API_KEY set.
+      EGS_LLM_PROVIDER: fixture
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Fail on committed API keys
+        # --exclude-dir=.github so this step's own pattern definition doesn't
+        # match itself -- it still scans every file that could plausibly
+        # carry a leaked key.
+        run: |
+          if grep -rE "sk-ant-|AKIA" --exclude-dir=.git --exclude-dir=.github .; then
+            echo "found what looks like a committed API key" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest
