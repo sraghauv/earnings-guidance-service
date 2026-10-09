@@ -16,10 +16,17 @@ _STRONG_CUES = (
     "take our first question",
     "the floor is open",
     "first question comes from",
+    "first question will come from",
+    "first question will be from",
+    "our first question from",
     "we will now open the floor",
     "we'll now open the floor",
     "open the line for your questions",
     "may we have the first question",
+    "may we please have the first question",
+    "may have the first question",
+    "let's open the call to questions",
+    "open the line for questions",
 )
 
 # "...session" on its own also shows up in the operator's opening housekeeping
@@ -47,21 +54,40 @@ _FORWARD_REFERENCE_AFTER = re.compile(
 )
 
 
-def _find_cue(text: str) -> re.Match | None:
-    """First cue match in `text`, or None. Strong cues win; a weak cue only
-    counts if it isn't framed as a forward reference to the call's agenda
-    ("there will be a Q&A session" / "a Q&A session will follow")."""
-    match = _STRONG_PATTERN.search(text)
-    if match:
-        return match
-    match = _WEAK_PATTERN.search(text)
+def _straighten(text: str) -> str:
+    """Swap curly apostrophes for straight ones so the cue list matches both.
+
+    Six of fourteen Apple transcripts use U+2019, which meant "we'll now begin
+    the question" silently missed them. The replacement is one character for
+    one character, so match offsets stay valid against the original text.
+    """
+    return text.replace("\u2019", "'")
+
+
+def _strong_match(text: str) -> re.Match | None:
+    return _STRONG_PATTERN.search(_straighten(text))
+
+
+def _weak_match(text: str) -> re.Match | None:
+    """A weak cue, unless it's framed as a forward reference to the agenda.
+
+    "there will be a Q&A session" and "a Q&A session will follow" preview the
+    call's format in the operator's opening; they are not the hand-off.
+    """
+    straightened = _straighten(text)
+    match = _WEAK_PATTERN.search(straightened)
     if not match:
         return None
-    before = text[max(0, match.start() - 40) : match.start()]
-    after = text[match.end() : match.end() + 30]
+    before = straightened[max(0, match.start() - 40) : match.start()]
+    after = straightened[match.end() : match.end() + 30]
     if _FORWARD_REFERENCE_BEFORE.search(before) or _FORWARD_REFERENCE_AFTER.search(after):
         return None
     return match
+
+
+def _find_cue(text: str) -> re.Match | None:
+    """First cue match in `text`, or None. Strong cues win."""
+    return _strong_match(text) or _weak_match(text)
 
 
 _TITLE_SPLIT = re.compile(r"\s*,\s*|\s+-\s+")
@@ -97,6 +123,31 @@ def speaker_turns(structured_content: list[dict] | None) -> list[tuple[str, str]
     return turns
 
 
+def _boundary_turn(turns: list[tuple[str, str]]) -> int | None:
+    """Index of the turn that opens the Q&A, or None if there isn't one.
+
+    A strong cue anywhere outranks a weak cue, rather than whichever happens
+    to come first. Boeing's operator describes the call's format up front
+    ("plus the analyst question-and-answer session, are being broadcast live"),
+    which trips a weak cue on turn 0 even though the real hand-off is 40k
+    characters later -- taking the first match of any strength put the entire
+    call in `qa` and left `prepared_remarks` empty on every Boeing quarter.
+
+    Turn 0 is never the boundary for the same reason: that turn is the
+    operator's housekeeping, and a real call always has prepared remarks
+    before its Q&A.
+    """
+    weak: int | None = None
+    for i, (_, text) in enumerate(turns):
+        if i == 0:
+            continue
+        if _strong_match(text):
+            return i
+        if weak is None and _weak_match(text):
+            weak = i
+    return weak
+
+
 def split_call(
     structured_content: list[dict] | None, content: str | None
 ) -> tuple[str, str]:
@@ -108,11 +159,11 @@ def split_call(
     """
     turns = speaker_turns(structured_content)
     if turns:
-        for i, (_, text) in enumerate(turns):
-            if _find_cue(text):
-                prepared = "\n\n".join(t for _, t in turns[:i])
-                qa = "\n\n".join(t for _, t in turns[i:])
-                return prepared, qa
+        boundary = _boundary_turn(turns)
+        if boundary is not None:
+            prepared = "\n\n".join(t for _, t in turns[:boundary])
+            qa = "\n\n".join(t for _, t in turns[boundary:])
+            return prepared, qa
         return "\n\n".join(t for _, t in turns), ""
 
     return _regex_split(content)
@@ -121,14 +172,23 @@ def split_call(
 def _regex_split(content: str | None) -> tuple[str, str]:
     if not content:
         return "", ""
-    match = _find_cue(content)
-    if not match:
-        return content, ""
-    # back up to the start of the paragraph the cue sits in, so we don't cut
-    # the sentence that opens the Q&A in half
-    boundary = content.rfind("\n", 0, match.start())
-    boundary = boundary + 1 if boundary != -1 else 0
-    return content[:boundary].strip(), content[boundary:].strip()
+
+    # A boundary at offset 0 means the cue was in the operator's opening
+    # housekeeping, not the hand-off -- same situation `_boundary_turn` guards
+    # against, and it would leave prepared_remarks empty. Keep looking past it.
+    search_from = 0
+    while True:
+        match = _find_cue(content[search_from:])
+        if not match:
+            return content, ""
+        start = search_from + match.start()
+        # back up to the start of the paragraph the cue sits in, so we don't
+        # cut the sentence that opens the Q&A in half
+        boundary = content.rfind("\n", 0, start)
+        boundary = boundary + 1 if boundary != -1 else 0
+        if boundary > 0:
+            return content[:boundary].strip(), content[boundary:].strip()
+        search_from = start + match.end() - match.start()
 
 
 def strip_boilerplate(text: str) -> str:

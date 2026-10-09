@@ -223,3 +223,96 @@ def test_strip_boilerplate_drops_operator_housekeeping():
 def test_strip_boilerplate_leaves_clean_text_untouched():
     text = "Revenue was $5B this quarter, up 12% year over year."
     assert strip_boilerplate(text) == text
+
+
+# The phrasings below are taken verbatim from real Apple and Boeing calls.
+# Each one used to be split wrongly, in opposite directions: Apple's hand-off
+# went undetected so the whole call became prepared remarks, and Boeing's
+# opening housekeeping matched so prepared remarks came out empty.
+
+
+def test_apple_hand_off_is_the_boundary_not_the_agenda_preview():
+    structured = [
+        {"speaker": "Operator", "text": "Good day and welcome to the Apple call."},
+        {
+            "speaker": "Tim Cook",
+            "text": "After that, we'll open the call to questions from analysts. "
+            "We expect revenue to be $90 billion.",
+        },
+        {"speaker": "Luca Maestri", "text": "With that let's open the call to questions."},
+        {"speaker": "Analyst", "text": "Thanks for taking my question."},
+    ]
+    prepared, qa = split_call(structured, content=None)
+    # The agenda preview in turn 1 must not end the prepared remarks.
+    assert "We expect revenue to be $90 billion." in prepared
+    assert qa.startswith("With that let's open the call to questions.")
+
+
+def test_curly_apostrophe_cue_still_matches():
+    structured = [
+        {"speaker": "Operator", "text": "Welcome to the call."},
+        {"speaker": "CFO", "text": "We expect revenue of $3 billion."},
+        {"speaker": "Operator", "text": "We’ll now begin the question and answer session."},
+        {"speaker": "Analyst", "text": "My question is about margins."},
+    ]
+    prepared, qa = split_call(structured, content=None)
+    assert "We expect revenue of $3 billion." in prepared
+    assert "question and answer session" in qa
+
+
+def test_operator_describing_the_format_does_not_empty_prepared_remarks():
+    """Boeing's operator mentions the Q&A while listing what's being broadcast.
+
+    This tripped a weak cue on turn 0, which put the entire call in `qa` on
+    every Boeing quarter in the corpus.
+    """
+    structured = [
+        {
+            "speaker": "Operator",
+            "text": "The management discussion and slide presentation, plus the "
+            "analyst question-and-answer session, are being broadcast live "
+            "over the Internet.",
+        },
+        {"speaker": "CFO", "text": "We expect free cash flow to be positive."},
+        {"speaker": "Operator", "text": "Our first question will come from the line of Myles Walton."},
+        {"speaker": "Analyst", "text": "Thanks."},
+    ]
+    prepared, qa = split_call(structured, content=None)
+    assert prepared
+    assert "We expect free cash flow to be positive." in prepared
+    assert qa.startswith("Our first question will come from")
+
+
+def test_first_question_phrasing_variants_all_match():
+    variants = [
+        "Our first question will come from the line of Myles Walton with UBS.",
+        "Our first question will be from Peter Arment with Baird.",
+        "Our first question from Doug Harned with Bernstein, please go ahead.",
+        "Operator, may we please have the first question?",
+        "Operator, may have the first question, please?",
+    ]
+    for cue in variants:
+        structured = [
+            {"speaker": "Operator", "text": "Welcome to the call."},
+            {"speaker": "CFO", "text": "We expect revenue of $3 billion."},
+            {"speaker": "Operator", "text": cue},
+        ]
+        prepared, qa = split_call(structured, content=None)
+        assert "We expect revenue of $3 billion." in prepared, cue
+        assert qa == cue, cue
+
+
+def test_regex_fallback_skips_a_cue_in_the_opening_paragraph():
+    """Same guard as the structured path, for calls with no speaker turns.
+
+    A cue inside the very first paragraph would otherwise put the boundary at
+    offset 0 and leave prepared remarks empty.
+    """
+    content = (
+        "Welcome. The analyst question-and-answer session is being broadcast live.\n\n"
+        "We expect revenue to be $3 billion plus or minus 2%.\n\n"
+        "Our first question will come from the line of Myles Walton."
+    )
+    prepared, qa = split_call(None, content)
+    assert "We expect revenue to be $3 billion" in prepared
+    assert qa.startswith("Our first question will come from")
