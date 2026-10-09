@@ -2,6 +2,7 @@
 replays canned JSON instead of calling a real model.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -75,16 +76,97 @@ def test_repair_exhaustion_raises(monkeypatch, tmp_path, tmp_db, sample_transcri
     assert provider.calls == 2
 
 
-def test_no_guidance_given_with_items_rejected(monkeypatch, tmp_path, tmp_db, sample_transcript):
+def test_quoted_items_win_over_a_no_guidance_flag(
+    monkeypatch, tmp_path, tmp_db, sample_transcript
+):
+    """A model that sets no_guidance_given and then returns items keeps them.
+
+    The items carry verbatim quotes and get checked against the transcript;
+    the flag is just a summary the model contradicted. Throwing away a quoted
+    figure over a stray boolean loses real data.
+    """
     _patch_settings(monkeypatch, _settings(tmp_path, max_repair_attempts=0))
+    upsert_transcript(tmp_db, sample_transcript)
     provider = FixtureProvider(FIXTURES)
     user_prompt = pipeline.build_user_prompt(pipeline.full_text(sample_transcript))
     provider.mapping[user_prompt] = "malformed_no_guidance_with_items.json"
 
-    with pytest.raises(pipeline.RepairExhaustedError, match="no_guidance_given"):
-        pipeline.extract_guidance(sample_transcript, provider, conn=tmp_db, use_cache=False)
+    result = pipeline.extract_guidance(
+        sample_transcript, provider, conn=tmp_db, use_cache=False
+    )
 
+    assert result.extraction.no_guidance_given is False
+    assert len(result.extraction.items) == 1
     assert provider.calls == 1
+
+
+def test_partial_items_survive_when_one_is_unusable():
+    """One item with no numeric bound must not discard the others.
+
+    Microsoft's December-quarter call returned eleven items, four of them
+    growth rates with no bound, and whole-payload validation lost all eleven.
+    """
+    payload = {
+        "ticker": "MSFT",
+        "no_guidance_given": False,
+        "extraction_notes": None,
+        "items": [
+            {
+                "metric": "segment_revenue",
+                "metric_detail": "Intelligent Cloud",
+                "period": {"kind": "quarter", "fiscal_year": 2021, "fiscal_quarter": 2},
+                "low": 13.55,
+                "high": 13.8,
+                "unit": "usd_billions",
+                "basis": "unspecified",
+                "quote": "we expect revenue between $13.55 billion and $13.8 billion",
+                "speaker": None,
+                "confidence": 0.9,
+            },
+            {
+                "metric": "segment_revenue",
+                "metric_detail": "Gaming",
+                "period": {"kind": "quarter", "fiscal_year": 2021, "fiscal_quarter": 2},
+                "low": None,
+                "high": None,
+                "unit": "percent",
+                "basis": "unspecified",
+                "quote": "we expect revenue growth in the high 20% range",
+                "speaker": None,
+                "confidence": 0.8,
+            },
+        ],
+    }
+    extraction, dropped = pipeline.parse_lenient(json.dumps(payload))
+
+    assert dropped == 1
+    assert [i.metric_detail for i in extraction.items] == ["Intelligent Cloud"]
+
+
+def test_nothing_usable_still_goes_to_repair():
+    """A response whose every item is unusable is worth another attempt."""
+    payload = {
+        "ticker": "MSFT",
+        "no_guidance_given": False,
+        "extraction_notes": None,
+        "items": [
+            {
+                "metric": "revenue",
+                "metric_detail": None,
+                "period": {"kind": "quarter", "fiscal_year": 2021, "fiscal_quarter": 2},
+                "low": None,
+                "high": None,
+                "unit": "percent",
+                "basis": "unspecified",
+                "quote": "revenue should grow nicely",
+                "speaker": None,
+                "confidence": 0.5,
+            }
+        ],
+    }
+    extraction, dropped = pipeline.parse_lenient(json.dumps(payload))
+    assert extraction.items == []
+    assert dropped == 1
 
 
 def test_fabricated_quote_dropped(monkeypatch, tmp_path, tmp_db, sample_transcript):

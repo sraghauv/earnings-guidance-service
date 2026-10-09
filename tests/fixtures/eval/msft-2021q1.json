@@ -1,0 +1,68 @@
+{
+  "transcript_id": "MSFT-2021Q1",
+  "ticker": "MSFT",
+  "labeled_from": "Prepared remarks, CFO sections beginning 'Next to segment guidance' and 'Now, back to Company guidance'.",
+  "notes": "Call of 2020-10-27, guiding the December 2020 quarter. Microsoft's fiscal year ends in June, so the period guided is FY2021Q2 -- the second quarter of the fiscal year closing June 2021. Chosen for segment-level revenue guidance, which the other gold calls don't exercise: the three reportable segments are guided as explicit ranges, and metric_detail is the only thing distinguishing them, which is exactly the case where the eval's match key does count metric_detail. COGS has no dedicated metric in the enum and is labeled 'other' with a detail. Deliberately not labeled: the growth-rate and directional guidance in the same passage ('Gaming, we expect revenue growth in the high 20% range', 'hardware revenue growth of approximately 40%', 'Search ex-TAC... decline in the mid to high-single-digit range', 'full-year double-digit revenue growth'). Those state a rate of change rather than a level, and the schema has no metric for a growth rate, so this gold set covers levels only.",
+  "items": [
+    {
+      "metric": "segment_revenue",
+      "metric_detail": "Productivity and Business Processes",
+      "basis": "unspecified",
+      "period_label": "FY2021Q2",
+      "low": 12.75,
+      "high": 13.0,
+      "unit": "usd_billions",
+      "source": "In Productivity and Business Processes, we expect revenue between $12.75 billion and $13 billion."
+    },
+    {
+      "metric": "segment_revenue",
+      "metric_detail": "Intelligent Cloud",
+      "basis": "unspecified",
+      "period_label": "FY2021Q2",
+      "low": 13.55,
+      "high": 13.8,
+      "unit": "usd_billions",
+      "source": "For Intelligent Cloud, we expect revenue between $13.55 billion and $13.8 billion."
+    },
+    {
+      "metric": "segment_revenue",
+      "metric_detail": "More Personal Computing",
+      "basis": "unspecified",
+      "period_label": "FY2021Q2",
+      "low": 13.2,
+      "high": 13.6,
+      "unit": "usd_billions",
+      "source": "In More Personal Computing, we expect revenue between $13.2 billion and $13.6 billion."
+    },
+    {
+      "metric": "other",
+      "metric_detail": "COGS",
+      "basis": "unspecified",
+      "period_label": "FY2021Q2",
+      "low": 13.75,
+      "high": 13.95,
+      "unit": "usd_billions",
+      "source": "We expect COGS of $13.75 billion to $13.95 billion and operating expense of $11.4 billion to $11.5 billion."
+    },
+    {
+      "metric": "opex",
+      "metric_detail": null,
+      "basis": "unspecified",
+      "period_label": "FY2021Q2",
+      "low": 11.4,
+      "high": 11.5,
+      "unit": "usd_billions",
+      "source": "We expect COGS of $13.75 billion to $13.95 billion and operating expense of $11.4 billion to $11.5 billion."
+    },
+    {
+      "metric": "tax_rate",
+      "metric_detail": null,
+      "basis": "unspecified",
+      "period_label": "FY2021Q2",
+      "low": 16.0,
+      "high": 16.0,
+      "unit": "percent",
+      "source": "And finally, we expect our Q2 tax rate to be approximately 16%."
+    }
+  ]
+}

@@ -6,6 +6,7 @@ validation, retrying with a repair hint, dropping hallucinated quotes,
 writing to disk, and caching.
 """
 
+import json
 import sqlite3
 from dataclasses import dataclass
 
@@ -64,6 +65,44 @@ def drop_fabricated_quotes(
     return extraction, dropped
 
 
+def parse_lenient(text: str) -> tuple[GuidanceExtraction, int]:
+    """Validate a response, dropping individual items that don't hold up.
+
+    Validating the whole payload at once means one bad item discards every
+    good one with it. Microsoft's December-quarter call is the case that forced
+    this: the model returned eleven items, four of them growth rates with no
+    numeric bound, and all eleven were lost. Items are independent figures, so
+    they are validated independently -- the same way a fabricated quote drops
+    one item rather than failing the call.
+
+    Returns (extraction, dropped). Raises ValidationError when the payload
+    isn't usable at all, which is what the repair loop is for.
+    """
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ValidationError.from_exception_data("GuidanceExtraction", []) from e
+    if not isinstance(payload, dict):
+        raise ValidationError.from_exception_data("GuidanceExtraction", [])
+
+    kept: list[GuidanceItem] = []
+    dropped = 0
+    for raw in payload.get("items") or []:
+        try:
+            kept.append(GuidanceItem.model_validate(raw))
+        except ValidationError:
+            dropped += 1
+
+    extraction = GuidanceExtraction(
+        ticker=str(payload.get("ticker") or ""),
+        # The model sometimes sets this alongside items; the items win.
+        no_guidance_given=bool(payload.get("no_guidance_given")) and not kept,
+        items=kept,
+        extraction_notes=payload.get("extraction_notes"),
+    )
+    return extraction, dropped
+
+
 def _extract_window(
     window: str,
     provider: LLMProvider,
@@ -71,7 +110,11 @@ def _extract_window(
     *,
     max_repair: int,
 ) -> tuple[GuidanceExtraction, int]:
-    """Extract one window, repairing schema failures up to `max_repair` times."""
+    """Extract one window, repairing schema failures up to `max_repair` times.
+
+    A response with some usable items is accepted even if others were dropped.
+    Repair is for a response with nothing usable in it.
+    """
     repair_hint: str | None = None
     attempts = 0
     while True:
@@ -82,15 +125,23 @@ def _extract_window(
             repair_hint=repair_hint,
         )
         try:
-            return GuidanceExtraction.model_validate_json(completion.text), attempts
+            extraction, dropped = parse_lenient(completion.text)
         except ValidationError as e:
-            if attempts >= max_repair:
-                raise RepairExhaustedError(
-                    f"no valid extraction after {attempts} repair attempts, "
-                    f"last error: {e}"
-                ) from e
-            attempts += 1
-            repair_hint = str(e)
+            failure: Exception = e
+        else:
+            if extraction.items or not dropped:
+                return extraction, attempts
+            failure = ValueError(
+                f"all {dropped} items failed validation, nothing usable"
+            )
+
+        if attempts >= max_repair:
+            raise RepairExhaustedError(
+                f"no valid extraction after {attempts} repair attempts, "
+                f"last error: {failure}"
+            ) from failure
+        attempts += 1
+        repair_hint = str(failure)
 
 
 def merge_windows(

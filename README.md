@@ -59,31 +59,43 @@ guidance occupies a few hundred of them.
 
 So `extract/windows.py` narrows the call first, from outlook cues where they
 exist and from ranked overlapping chunks where they don't, and the pipeline
-merges per-window results keyed on metric, detail, period and basis. Across 40
-real calls that is 4.2 windows each and 30% of the original text. Overlap means
+merges per-window results keyed on metric, detail, period and basis. Across 48
+real calls that is 3.9 windows each and 26% of the original text. Overlap means
 the same figure arrives more than once, and keying the merge on identity rather
 than value keeps that from reading downstream as the company contradicting
 itself.
 
 ## How good is the extraction
 
-`scripts/eval_extraction.py` scores an extraction against hand-labeled calls in
-`tests/fixtures/eval/`. On NVDA-2020Q4 with gemma3:4b:
+`scripts/eval_extraction.py` scores extractions against hand-labeled calls in
+`tests/fixtures/eval/`. Three calls are labeled, chosen to stress different
+things: NVIDIA's January fiscal year end and GAAP/non-GAAP pairs, Apple
+declining to guide revenue and margin while guiding three other line items
+anyway, and Microsoft's segment-level revenue ranges under a June fiscal year
+end. With gemma3:4b:
 
 ```
-recall=0.20  precision=0.40  value_accuracy=0.50   (matched=2 missed=8 spurious=3)
+nvda-2020q4   recall=0.20  precision=0.33  value_accuracy=0.50
+aapl-2020q3   recall=0.00  precision=0.00
+msft-2021q1   recall=0.00  precision=0.00
+aggregate     recall=0.11  precision=0.25  value_accuracy=0.50
 ```
 
-That is a usable floor, not a good result, and worth being plain about: a 4B
-model gets the easy figures right — revenue $3B ±2% resolves correctly to
-2.94-3.06, capex to $150-170M — and then mislabels basis, assigns GAAP's gross
-margin range to non-GAAP, and misses OI&E entirely. The structural guarantees
-hold regardless of model: the schema rejects malformed output, unquoted figures
-get dropped, and the reconciliation pass still catches what survives.
+The first labeled call flattered the model. One transcript gave recall 0.20;
+three give 0.11, which is what adding calls to a benchmark is supposed to do.
 
-One labeled call is a very small sample, and runs vary a little even at
-temperature 0. The `claude-opus-5` provider is wired up but has not been
-measured, since that needs an API key.
+The failures are the model, not the retrieval. All five of Microsoft's guided
+figures sit inside the 6,859 characters the windower hands over, and the model
+returns one item with a null bound and a fiscal year four years off. Apple is
+the same: OpEx, tax rate and OI&E are all in the window and none come back.
+NVIDIA's outlook is a tight labeled paragraph and the model does roughly half
+of it correctly, which is the pattern -- it reads a dense list of figures and
+loses track of prose with numbers scattered through it.
+
+What holds regardless of model: the schema rejects unusable items, unquoted
+figures get dropped, and reconciliation catches what survives. A 4B model is
+the floor here, not the ceiling. The `claude-opus-5` provider is wired up and
+window-aware but unmeasured, since that needs an API key.
 
 ## Providers
 
@@ -126,8 +138,7 @@ python scripts/eval_extraction.py            # score against the labeled calls
 
 ## Still to do
 
-- Label more than one call. The harness exists and the numbers above are real,
-  but a single transcript is not a benchmark.
 - Measure `claude-opus-5` against the same gold set, which needs an API key.
+  Three labeled calls is a start, not a benchmark; more would sharpen it.
 - Segment-level revenue guidance is extracted but not yet reconciled, since
   segment actuals aren't in the free endpoints.

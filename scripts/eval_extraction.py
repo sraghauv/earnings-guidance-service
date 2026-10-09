@@ -84,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
 
     aggregate_matched = aggregate_missed = aggregate_spurious = 0
     aggregate_value_correct = aggregate_value_wrong = 0
+    failed_files: list[str] = []
     per_file: dict[str, dict] = {}
 
     for gold_path in gold_paths:
@@ -101,8 +102,15 @@ def main(argv: list[str] | None = None) -> int:
         try:
             result = extract_guidance(transcript, provider, use_cache=not args.no_cache)
         except (RepairExhaustedError, ProviderError) as exc:
-            print(f"extraction failed for {transcript.id}: {exc}", file=sys.stderr)
-            return 1
+            # A transcript the model can't produce valid output for is a result,
+            # not a reason to abandon the run -- it counts as missing every
+            # figure in that gold file, which is what it cost in practice.
+            print(f"\n=== {gold_path.name} ===")
+            print(f"extraction failed: {exc}")
+            print(f"counted as {len(gold.items)} missed")
+            aggregate_missed += len(gold.items)
+            failed_files.append(gold_path.name)
+            continue
 
         file_score = score(result.extraction, gold)
         aggregate_matched += len(file_score.matched)
@@ -138,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         "matched": aggregate_matched,
         "missed": aggregate_missed,
         "spurious": aggregate_spurious,
+        "failed_files": failed_files,
         "files": per_file,
     }
 
@@ -151,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
             f"(matched={aggregate_matched} missed={aggregate_missed} "
             f"spurious={aggregate_spurious})"
         )
+        if failed_files:
+            print(f"extraction failed outright on: {', '.join(failed_files)}")
 
     return 0
 

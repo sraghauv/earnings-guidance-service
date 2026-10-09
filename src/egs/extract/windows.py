@@ -35,7 +35,14 @@ _CUES = (
     r"mov(?:ing|e)\s+(?:on\s+)?to\s+(?:our\s+)?(?:guidance|outlook)",
     r"now\s+(?:let\s+me|I'?ll|I\s+will)\s+(?:turn\s+to|discuss|cover)\s+(?:our\s+)?(?:guidance|outlook)",
     r"revenue\s+is\s+expected\s+to\s+be",
-    r"we\s+expect\s+revenue\s+(?:to\s+be|of)",
+    r"we\s+expect\s+revenue\s+(?:to\s+be|of|between)",
+    # Microsoft guides each segment under its own heading and then returns to
+    # company-level figures; neither heading says "outlook".
+    r"(?:next\s+)?to\s+segment\s+guidance",
+    r"back\s+to\s+(?:company|total)\s+guidance",
+    # Apple introduces each line item this way instead of naming the metric
+    # first ("For OpEx, we expect to be between $9.8 billion and $9.9 billion").
+    r"we\s+expect\s+to\s+be\s+between",
     r"for\s+the\s+(?:first|second|third|fourth)\s+quarter[^.]{0,60}?we\s+expect",
 )
 _CUE_PATTERN = re.compile("|".join(_CUES), re.IGNORECASE)

@@ -4,7 +4,7 @@ PROMPT_VERSION feeds into the cache key (see base.LLMProvider.cache_key), so
 bump it whenever a wording change could plausibly change model output.
 """
 
-PROMPT_VERSION = "v5"
+PROMPT_VERSION = "v6"
 
 SYSTEM_PROMPT = """\
 You extract forward-looking financial guidance from earnings call transcripts.
@@ -21,9 +21,18 @@ transcript it came from, copied verbatim, not paraphrased or summarized. If
 you cannot point to a verbatim sentence supporting an item, do not include
 that item.
 
-If management explicitly declined to give guidance, or gave none at all
-during the call, set `no_guidance_given` to true and return an empty `items`
-list. Do not invent items to fill the list.
+Only count guidance that states a numeric level. Management often gives a
+direction or a rate of change instead -- "revenue growth in the high 20%
+range", "we expect revenue to decline low-single-digits", "strong
+year-over-year performance". Skip those entirely. Do not emit an item with
+both `low` and `high` null; an item with no numeric bound is not usable and
+will be rejected.
+
+Set `no_guidance_given` to true ONLY when the call contains no numeric
+guidance of any kind. Declining to guide some metrics is not declining to
+guide. A company may say "we will not be issuing revenue and margin guidance"
+and then guide operating expenses, tax rate and other income in the next
+breath -- extract what it did give. Do not invent items to fill the list.
 
 Map every guided period to the company's FISCAL period, not the calendar
 quarter. Companies often run fiscal years that do not match the calendar

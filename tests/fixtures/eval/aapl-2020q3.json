@@ -1,0 +1,38 @@
+{
+  "transcript_id": "AAPL-2020Q3",
+  "ticker": "AAPL",
+  "labeled_from": "Prepared remarks, CFO section beginning 'As we move ahead into the September quarter, I'd like to provide some color on what we are seeing'.",
+  "notes": "This is the June-quarter call (reported 2020-07-30) guiding the September quarter. Apple's fiscal year ends in late September, so the period guided is FY2020Q4 -- the fiscal year closing September 2020, not 2021. Chosen because Apple explicitly declined to guide the two headline metrics: 'given the uncertainty around the world in the near-term, we will not be issuing revenue and margin guidance for the coming quarter'. It then guided OpEx, tax rate and OI&E anyway. So revenue and gross_margin must NOT appear in an extraction of this call, and anything claiming them is a hallucination the quote check should not even have to catch. OI&E has no dedicated metric in the enum and is labeled 'other' with a metric_detail, matching the NVDA gold file. The call also contains a lot of directional, non-numeric guidance ('we expect the rest of our product categories to have strong year-over-year performance'); only figures stating a numeric bound are labeled here.",
+  "items": [
+    {
+      "metric": "opex",
+      "metric_detail": null,
+      "basis": "unspecified",
+      "period_label": "FY2020Q4",
+      "low": 9.8,
+      "high": 9.9,
+      "unit": "usd_billions",
+      "source": "For OpEx, we expect to be between $9.8 billion and $9.9 billion."
+    },
+    {
+      "metric": "tax_rate",
+      "metric_detail": null,
+      "basis": "unspecified",
+      "period_label": "FY2020Q4",
+      "low": 16.5,
+      "high": 16.5,
+      "unit": "percent",
+      "source": "We expect the tax rate to be about 16.5% and OI&E to be $50 million."
+    },
+    {
+      "metric": "other",
+      "metric_detail": "OI&E",
+      "basis": "unspecified",
+      "period_label": "FY2020Q4",
+      "low": 50.0,
+      "high": 50.0,
+      "unit": "usd_millions",
+      "source": "We expect the tax rate to be about 16.5% and OI&E to be $50 million."
+    }
+  ]
+}
