@@ -135,6 +135,11 @@ def _check_internal(item: GuidanceItem, *, ticker: str) -> list[Mismatch]:
     if item.metric is Metric.REVENUE and item.unit is Unit.USD_PER_SHARE:
         problems.append("revenue guidance given per-share, which isn't a dollar amount")
 
+    if item.metric is Metric.SEGMENT_REVENUE and not (item.metric_detail or "").strip():
+        # Without a segment name the figure can't be attributed, compared
+        # against anything, or told apart from another segment's guidance.
+        problems.append("segment_revenue guidance names no segment in metric_detail")
+
     if item.metric in _MARGIN_METRICS:
         if item.unit is not Unit.PERCENT:
             problems.append(f"{item.metric.value} given in {item.unit.value}, expected percent")
@@ -229,14 +234,26 @@ def _ranges_overlap(a: GuidanceItem, b: GuidanceItem) -> bool:
     return a_lo <= b_hi and b_lo <= a_hi
 
 
+def _detail_key(metric_detail: str | None) -> str:
+    return (metric_detail or "").strip().casefold()
+
+
 def _check_duplicates(items: list[GuidanceItem], *, ticker: str) -> list[Mismatch]:
-    groups: dict[tuple[Metric, str, Basis], list[GuidanceItem]] = {}
+    """Two readings of the same figure that can't both be right.
+
+    `metric_detail` is part of the key, which matters for segments: Microsoft
+    guides Productivity, Intelligent Cloud and More Personal Computing for the
+    same period with ranges that don't overlap, and those are three different
+    figures, not three readings of one. Keying without the detail flagged two
+    false conflicts on that call.
+    """
+    groups: dict[tuple[Metric, str, str, Basis], list[GuidanceItem]] = {}
     for item in items:
-        key = (item.metric, item.period.label(), item.basis)
+        key = (item.metric, _detail_key(item.metric_detail), item.period.label(), item.basis)
         groups.setdefault(key, []).append(item)
 
     mismatches: list[Mismatch] = []
-    for (metric, period_label, basis), group in groups.items():
+    for (metric, _detail, period_label, basis), group in groups.items():
         if len(group) < 2:
             continue
         for a, b in combinations(group, 2):
@@ -266,6 +283,84 @@ def _check_duplicates(items: list[GuidanceItem], *, ticker: str) -> list[Mismatc
     return mismatches
 
 
+_DOLLAR_UNITS = {
+    Unit.USD,
+    Unit.USD_THOUSANDS,
+    Unit.USD_MILLIONS,
+    Unit.USD_BILLIONS,
+}
+
+
+def _check_segment_sums(items: list[GuidanceItem], *, ticker: str) -> list[Mismatch]:
+    """Segment revenue guidance that can't fit inside total revenue guidance.
+
+    Reportable segments are disjoint parts of total revenue, so they may sum to
+    less than the total -- a company needn't guide every segment, and there is
+    usually an "other" line -- but never to more.
+
+    The test deliberately uses the sum of segment *lows* against the *highest*
+    total, the most favorable reading available, so it only fires when no
+    combination of values inside the guided ranges could be consistent. A
+    missing segment low counts as zero and a missing total high makes the total
+    unbounded; both weaken the check rather than making it wrong. Periods with
+    no total revenue guidance are skipped silently -- there is nothing to
+    compare against, and a false mismatch is worse than a missed one.
+    """
+    segments: dict[str, list[GuidanceItem]] = {}
+    totals: dict[str, list[GuidanceItem]] = {}
+    for item in items:
+        if item.unit not in _DOLLAR_UNITS:
+            continue
+        label = item.period.label()
+        if item.metric is Metric.SEGMENT_REVENUE:
+            segments.setdefault(label, []).append(item)
+        elif item.metric is Metric.REVENUE:
+            totals.setdefault(label, []).append(item)
+
+    mismatches: list[Mismatch] = []
+    for label, group in segments.items():
+        total_items = totals.get(label)
+        if not total_items:
+            continue
+        highs = [
+            to_canonical(t.high, t.unit) for t in total_items if t.high is not None
+        ]
+        if len(highs) != len(total_items):
+            # At least one total is open-ended ("at least $X"), so no sum of
+            # segments can be shown to exceed it.
+            continue
+        total_high = max(highs)
+
+        segment_low_sum = sum(
+            to_canonical(item.low, item.unit) for item in group if item.low is not None
+        )
+        if segment_low_sum <= total_high:
+            continue
+
+        named = ", ".join(sorted((i.metric_detail or "?").strip() for i in group))
+        mismatches.append(
+            Mismatch(
+                kind=MismatchKind.INTERNAL,
+                ticker=ticker,
+                metric=Metric.SEGMENT_REVENUE,
+                period_label=label,
+                guided_value=segment_low_sum,
+                comparison_value=total_high,
+                relative_error=(segment_low_sum - total_high) / total_high
+                if total_high
+                else None,
+                detail=(
+                    f"segment revenue guidance for {label} sums to at least "
+                    f"{segment_low_sum:,.0f} across {len(group)} segments "
+                    f"({named}), above the highest guided total revenue of "
+                    f"{total_high:,.0f}"
+                ),
+                quote=None,
+            )
+        )
+    return mismatches
+
+
 def reconcile(
     items: list[GuidanceItem], *, client: AlphaVantageClient, ticker: str
 ) -> list[Mismatch]:
@@ -279,4 +374,5 @@ def reconcile(
         mismatches.extend(_check_internal(item, ticker=ticker))
     mismatches.extend(_check_vs_reported(items, client=client, ticker=ticker))
     mismatches.extend(_check_duplicates(items, ticker=ticker))
+    mismatches.extend(_check_segment_sums(items, ticker=ticker))
     return mismatches

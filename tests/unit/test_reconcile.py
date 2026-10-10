@@ -13,6 +13,8 @@ import pytest
 
 from egs.crosscheck.alphavantage import FixtureAlphaVantageClient
 from egs.crosscheck.reconcile import (
+    _check_duplicates,
+    _check_segment_sums,
     fiscal_label_for_date,
     fiscal_year_end_month,
     reconcile,
@@ -252,3 +254,141 @@ def test_duplicate_conflict_normalized_units_still_catches_a_real_conflict(av_cl
     b = _item(metric=Metric.REVENUE, kind=PeriodKind.QUARTER, fiscal_year=2027, fiscal_quarter=1, low=40000.0, high=41000.0, unit=Unit.USD_MILLIONS)
     mismatches = reconcile([a, b], client=av_client, ticker="NVDA")
     assert any(m.kind is MismatchKind.DUPLICATE_CONFLICT for m in mismatches)
+
+
+# ---- segment guidance ----
+
+
+def _seg(name, low, high, *, unit=Unit.USD_BILLIONS, fiscal_year=2021, fiscal_quarter=2):
+    return _item(
+        metric=Metric.SEGMENT_REVENUE,
+        kind=PeriodKind.QUARTER,
+        fiscal_year=fiscal_year,
+        fiscal_quarter=fiscal_quarter,
+        low=low,
+        high=high,
+        unit=unit,
+        quote=f"in {name}, we expect revenue between ${low} billion and ${high} billion",
+    ).model_copy(update={"metric_detail": name})
+
+
+def _total(low, high, *, unit=Unit.USD_BILLIONS, fiscal_year=2021, fiscal_quarter=2):
+    return _item(
+        metric=Metric.REVENUE,
+        kind=PeriodKind.QUARTER,
+        fiscal_year=fiscal_year,
+        fiscal_quarter=fiscal_quarter,
+        low=low,
+        high=high,
+        unit=unit,
+        quote="we expect total revenue",
+    )
+
+
+def test_real_segment_guidance_is_not_a_duplicate_conflict():
+    """Microsoft's three FY2021Q2 segments are three figures, not three readings.
+
+    Keying duplicates without metric_detail flagged two false conflicts here,
+    since the segment ranges legitimately don't overlap each other.
+    """
+    items = [
+        _seg("Productivity and Business Processes", 12.75, 13.0),
+        _seg("Intelligent Cloud", 13.55, 13.8),
+        _seg("More Personal Computing", 13.2, 13.6),
+    ]
+    assert _check_duplicates(items, ticker="MSFT") == []
+
+
+def test_same_segment_guided_twice_without_overlap_is_a_conflict():
+    items = [
+        _seg("Intelligent Cloud", 13.55, 13.8),
+        _seg("Intelligent Cloud", 20.0, 21.0),
+    ]
+    mismatches = _check_duplicates(items, ticker="MSFT")
+    assert len(mismatches) == 1
+    assert mismatches[0].kind is MismatchKind.DUPLICATE_CONFLICT
+
+
+def test_segment_name_differing_only_by_case_still_conflicts():
+    items = [_seg("Intelligent Cloud", 13.55, 13.8), _seg("intelligent cloud", 20.0, 21.0)]
+    assert len(_check_duplicates(items, ticker="MSFT")) == 1
+
+
+def test_segment_revenue_without_a_segment_name_flagged_internal(av_client):
+    item = _seg("   ", 13.55, 13.8)
+    mismatches = reconcile([item], client=av_client, ticker="MSFT")
+    internal = [m for m in mismatches if m.kind is MismatchKind.INTERNAL]
+    assert any("names no segment" in m.detail for m in internal)
+
+
+def test_named_segment_is_not_flagged_for_a_missing_name(av_client):
+    item = _seg("Intelligent Cloud", 13.55, 13.8)
+    mismatches = reconcile([item], client=av_client, ticker="MSFT")
+    assert not any("names no segment" in m.detail for m in mismatches)
+
+
+def test_segments_summing_above_total_revenue_flagged():
+    items = [
+        _seg("Productivity and Business Processes", 12.75, 13.0),
+        _seg("Intelligent Cloud", 13.55, 13.8),
+        _seg("More Personal Computing", 13.2, 13.6),
+        _total(20.0, 21.0),
+    ]
+    mismatches = _check_segment_sums(items, ticker="MSFT")
+    assert len(mismatches) == 1
+    assert mismatches[0].kind is MismatchKind.INTERNAL
+    assert mismatches[0].metric is Metric.SEGMENT_REVENUE
+    # Sum of lows is 39.5bn against a 21bn total.
+    assert mismatches[0].guided_value == pytest.approx(39.5e9)
+    assert mismatches[0].comparison_value == pytest.approx(21e9)
+
+
+def test_segments_fitting_inside_total_revenue_is_silent():
+    items = [
+        _seg("Productivity and Business Processes", 12.75, 13.0),
+        _seg("Intelligent Cloud", 13.55, 13.8),
+        _total(40.0, 41.0),
+    ]
+    assert _check_segment_sums(items, ticker="MSFT") == []
+
+
+def test_segment_sum_skipped_when_no_total_revenue_guided():
+    """Nothing to compare against, so nothing is emitted."""
+    items = [
+        _seg("Productivity and Business Processes", 12.75, 13.0),
+        _seg("Intelligent Cloud", 13.55, 13.8),
+    ]
+    assert _check_segment_sums(items, ticker="MSFT") == []
+
+
+def test_segment_sum_skipped_when_total_is_open_ended():
+    """"At least $20 billion" can't be exceeded by any finite sum."""
+    items = [_seg("Intelligent Cloud", 30.0, 31.0), _total(20.0, None)]
+    assert _check_segment_sums(items, ticker="MSFT") == []
+
+
+def test_segment_sum_compares_across_units():
+    """A segment in millions and a total in billions must not false-positive."""
+    items = [
+        _seg("Intelligent Cloud", 13550.0, 13800.0, unit=Unit.USD_MILLIONS),
+        _total(40.0, 41.0),
+    ]
+    assert _check_segment_sums(items, ticker="MSFT") == []
+
+
+def test_segment_sum_only_compares_within_the_same_period():
+    items = [
+        _seg("Intelligent Cloud", 30.0, 31.0, fiscal_quarter=2),
+        _total(20.0, 21.0, fiscal_quarter=3),
+    ]
+    assert _check_segment_sums(items, ticker="MSFT") == []
+
+
+def test_segment_missing_a_low_bound_counts_as_zero():
+    """A one-sided segment weakens the sum rather than inventing a floor."""
+    items = [
+        _seg("Intelligent Cloud", None, 30.0),
+        _seg("Productivity and Business Processes", 5.0, 6.0),
+        _total(20.0, 21.0),
+    ]
+    assert _check_segment_sums(items, ticker="MSFT") == []

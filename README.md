@@ -37,7 +37,16 @@ checkable. `crosscheck/reconcile.py` compares guided EPS against the
 `reportedEPS` the company later filed and flags anything outside a 2% tolerance,
 alongside internal checks (impossible units, margins outside 0-100, a quarter
 number attached to a full-year period) and conflicts between two extractions
-for the same metric and period.
+for the same figure and period.
+
+Segment guidance gets its own arithmetic check. Reportable segments are
+disjoint parts of total revenue, so they can sum to less than the guided total
+but never to more. The comparison uses the sum of segment *lows* against the
+*highest* guided total — the most favorable reading available — so it only
+fires when no values inside the guided ranges could be consistent. Identity
+matters here too: Microsoft guides three segments for one period with ranges
+that don't overlap each other, and treating those as readings of one figure
+produced two false conflicts until the segment name became part of the key.
 
 The fiscal-period mapping is the part that actually takes care. A fiscal year is
 named for the calendar year it closes in, so NVDA's fiscal 2026 ran February
@@ -140,5 +149,7 @@ python scripts/eval_extraction.py            # score against the labeled calls
 
 - Measure `claude-opus-5` against the same gold set, which needs an API key.
   Three labeled calls is a start, not a benchmark; more would sharpen it.
-- Segment-level revenue guidance is extracted but not yet reconciled, since
-  segment actuals aren't in the free endpoints.
+- Segment guidance is checked for internal consistency — an unnamed segment,
+  segments summing past the guided total, the same segment guided twice with
+  ranges that can't both hold. Comparing a segment against what it actually
+  reported still needs segment actuals, which the free endpoints don't carry.
