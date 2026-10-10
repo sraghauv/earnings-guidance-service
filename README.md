@@ -111,8 +111,13 @@ window-aware but unmeasured, since that needs an API key.
 Extraction runs against either backend behind one interface:
 
 - `ollama` (default) — `gemma3:4b` locally, so the whole pipeline runs for free
-- `anthropic` — `claude-opus-5` with structured outputs; bulk runs go through
-  the Batches API at half cost
+- `anthropic` — `claude-opus-5` with structured outputs, and `fallbacks:
+  "default"` so a request the safety classifiers decline is re-run on another
+  model server-side instead of coming back as a refusal. A key without that
+  beta still works: the provider notices the rejection, drops the parameter
+  and carries on without the safety net. Bulk runs go through the Batches API
+  at half cost, which doesn't accept `fallbacks` — a declined window there has
+  to be re-run interactively.
 - `fixture` — replays recorded responses, which is what lets CI run with no
   keys and no network
 

@@ -1,13 +1,20 @@
 """Anthropic backend for guidance extraction.
 
-Uses `messages.create` with `output_config` set to the caller's JSON schema,
-not `messages.parse`. `messages.parse` runs `GuidanceExtraction`'s pydantic
+Uses `create` with `output_config` set to the caller's JSON schema, not
+`messages.parse`. `messages.parse` runs `GuidanceExtraction`'s pydantic
 validators (the `no_guidance_given`/`low<=high` checks) as part of parsing the
 response, and raises straight out of the call if they fail -- which throws
 away the raw text before this provider ever sees it. Since `complete_json`'s
 whole job is to hand back raw text and let `extract.pipeline` decide what to
 do with validation failures, that's the wrong tool here even though it reads
 nicer for the happy path.
+
+Requests go through the beta namespace so they can carry `fallbacks`, which
+re-runs a request the safety classifiers decline on another model server-side
+instead of handing back the refusal. `"default"` routes by refusal category
+rather than pinning a substitute model, so there's no list to maintain when a
+pinned model is retired. Not available on the Batches API, which is why
+`extract.batch_runner` doesn't set it.
 """
 
 import anthropic
@@ -16,6 +23,23 @@ from egs.config import get_settings
 from egs.llm.base import Completion, LLMProvider, ProviderError
 
 MAX_TOKENS = 16000
+
+# Gates the `fallbacks: "default"` scalar form specifically. The array form
+# (`fallbacks=[{"model": ...}]`) is gated by -2026-06-01 instead, and pairing
+# either header with the other form is a 400 -- so this string and the value
+# below have to move together.
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+
+def _rejects_fallbacks(error: anthropic.BadRequestError) -> bool:
+    """Whether a 400 is about the fallback beta rather than our request.
+
+    Deliberately narrow: a malformed schema or a bad message list also returns
+    400, and retrying those unchanged would just burn a second request and
+    bury the real error.
+    """
+    text = str(error).lower()
+    return "fallback" in text or FALLBACK_BETA in text
 
 
 class AnthropicProvider(LLMProvider):
@@ -33,6 +57,30 @@ class AnthropicProvider(LLMProvider):
         # Raw text of the last response, so a repair call can replay it as
         # conversation history instead of needing the caller to pass it in.
         self._last_raw: str | None = None
+        # Latches off if the API rejects the fallback beta, so one rejection
+        # costs one wasted request rather than one per call for the whole run.
+        self._fallbacks_enabled = True
+
+    def _create(self, system: str, messages: list[dict], schema: dict):
+        """One request, with the fallback beta unless it has been rejected.
+
+        The beta namespace is required -- `fallbacks` isn't a parameter on
+        plain `client.messages.create`.
+        """
+        extra = (
+            {"betas": [FALLBACK_BETA], "fallbacks": "default"}
+            if self._fallbacks_enabled
+            else {}
+        )
+        return self.client.beta.messages.create(
+            model=self.model,
+            max_tokens=MAX_TOKENS,
+            system=system,
+            messages=messages,
+            thinking={"type": "adaptive"},
+            output_config={"format": {"type": "json_schema", "schema": schema}},
+            **extra,
+        )
 
     def complete_json(
         self,
@@ -58,16 +106,19 @@ class AnthropicProvider(LLMProvider):
             )
 
         try:
-            resp = self.client.messages.create(
-                model=self.model,
-                max_tokens=MAX_TOKENS,
-                system=system,
-                messages=messages,
-                thinking={"type": "adaptive"},
-                output_config={
-                    "format": {"type": "json_schema", "schema": schema}
-                },
-            )
+            resp = self._create(system, messages, schema)
+        except anthropic.BadRequestError as e:
+            if not self._fallbacks_enabled or not _rejects_fallbacks(e):
+                raise ProviderError(f"anthropic rejected the request: {e}") from e
+            # The beta isn't available to this key. Drop it and carry on
+            # without the safety net rather than failing the extraction.
+            self._fallbacks_enabled = False
+            try:
+                resp = self._create(system, messages, schema)
+            except anthropic.APIStatusError as retry_error:
+                raise ProviderError(
+                    f"anthropic API error {retry_error.status_code}: {retry_error}"
+                ) from retry_error
         except anthropic.NotFoundError as e:
             raise ProviderError(f"model not found: {self.model}") from e
         except anthropic.RateLimitError as e:

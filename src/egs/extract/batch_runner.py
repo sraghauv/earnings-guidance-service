@@ -6,6 +6,11 @@ One request per guidance window, not per transcript, matching what
 comes back empty. `custom_id` is "<transcript id>#<window index>" and the
 per-window results are merged back per transcript on collection.
 
+No refusal fallbacks here either, unlike the interactive provider -- the
+`fallbacks` parameter is rejected on the Batches API. A window the classifiers
+decline comes back in `failures` and has to be re-run through
+`extract_guidance` to get the fallback.
+
 There's no repair loop inside a batch: a batch request can't react to its own
 output. A window whose result fails schema validation is dropped and noted in
 `failures`, and the transcript still keeps whatever its other windows
