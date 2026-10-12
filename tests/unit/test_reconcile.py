@@ -427,3 +427,60 @@ def test_offline_checks_still_run_without_a_client():
 def test_vs_reported_is_the_only_check_that_needs_a_client():
     item = _item(fiscal_year=2027, fiscal_quarter=1, low=1.87 * 1.10, high=1.87 * 1.10)
     assert [m.kind for m in reconcile([item], client=None, ticker="NVDA")] == []
+
+
+# ---- unit errors seen in real extractions ----
+
+
+def test_absurd_dollar_magnitude_is_flagged_as_a_unit_error(av_client):
+    """$75 trillion of iPhone revenue is a unit error, not a number.
+
+    From a real AAPL extraction: a figure already in dollars was labeled
+    usd_millions, which scales it by a million.
+    """
+    item = _item(
+        metric=Metric.REVENUE,
+        low=75_000_000.0,
+        high=75_000_000.0,
+        unit=Unit.USD_MILLIONS,
+    )
+    mismatches = reconcile([item], client=av_client, ticker="AAPL")
+    hits = [m for m in mismatches if "unit is wrong" in m.detail]
+    assert len(hits) == 1, "a point estimate should report this once, not per bound"
+
+
+def test_plausible_dollar_figures_are_left_alone(av_client):
+    """The cap has to be far enough out that it never fires on real guidance."""
+    for low, high, unit in [
+        (2.94, 3.06, Unit.USD_BILLIONS),
+        (150.0, 170.0, Unit.USD_MILLIONS),
+        (835.0, 835.0, Unit.USD_MILLIONS),
+        (720_000_000.0, 720_000_000.0, Unit.USD),
+        (400.0, 410.0, Unit.USD_BILLIONS),
+    ]:
+        item = _item(metric=Metric.REVENUE, low=low, high=high, unit=unit)
+        mismatches = reconcile([item], client=av_client, ticker="AAPL")
+        assert not [m for m in mismatches if "unit is wrong" in m.detail], (
+            f"{low}-{high} {unit.value} should not be flagged"
+        )
+
+
+def test_revenue_guided_as_a_percentage_is_flagged(av_client):
+    """"Services revenue up 26%" is a growth rate, which isn't a level."""
+    item = _item(metric=Metric.REVENUE, low=None, high=26.0, unit=Unit.PERCENT)
+    mismatches = reconcile([item], client=av_client, ticker="AAPL")
+    assert any("rate of change" in m.detail for m in mismatches)
+
+
+def test_margins_in_percent_are_not_flagged_as_rate_errors(av_client):
+    """A margin is legitimately a percentage -- only amounts aren't."""
+    item = _item(metric=Metric.GROSS_MARGIN, low=64.5, high=65.5, unit=Unit.PERCENT)
+    mismatches = reconcile([item], client=av_client, ticker="NVDA")
+    assert not [m for m in mismatches if "rate of change" in m.detail]
+
+
+def test_percent_metrics_are_not_magnitude_checked(av_client):
+    """to_canonical passes percent through, so a dollar cap must not apply."""
+    item = _item(metric=Metric.TAX_RATE, low=9.0, high=9.0, unit=Unit.PERCENT)
+    mismatches = reconcile([item], client=av_client, ticker="NVDA")
+    assert not [m for m in mismatches if "unit is wrong" in m.detail]

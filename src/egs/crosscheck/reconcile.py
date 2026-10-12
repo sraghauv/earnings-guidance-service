@@ -34,6 +34,36 @@ from egs.valuation.multiples import to_canonical
 
 _MARGIN_METRICS = {Metric.GROSS_MARGIN, Metric.OPERATING_MARGIN}
 
+# Metrics that are a dollar amount, so a percentage unit on them means the
+# model captured a rate of change instead of a level.
+_DOLLAR_METRICS = {
+    Metric.REVENUE,
+    Metric.SEGMENT_REVENUE,
+    Metric.OPERATING_INCOME,
+    Metric.EBITDA,
+    Metric.FREE_CASH_FLOW,
+    Metric.CAPEX,
+    Metric.OPEX,
+}
+_RATE_UNITS = {Unit.PERCENT, Unit.RATIO}
+
+# No company's guidance is a ten-trillion-dollar figure -- the largest annual
+# revenue on record is under a trillion and world GDP is around 100 trillion.
+# A canonical value past this is a unit error, not a number. Set far enough out
+# that it can't fire on anything real: observed cases were $75 trillion (a
+# segment figure in millions that was already in dollars) and 2.7e19 (billions
+# that were already dollars).
+_ABSURD_USD = 1e13
+
+# Units to_canonical converts to plain USD; percent/ratio/per-share pass
+# through unchanged and must not be magnitude-checked against a dollar cap.
+_DOLLAR_SCALED = {
+    Unit.USD,
+    Unit.USD_THOUSANDS,
+    Unit.USD_MILLIONS,
+    Unit.USD_BILLIONS,
+}
+
 
 def fiscal_year_end_month(earnings_payload: dict) -> int:
     """Infer a company's fiscal year-end month from its most recent annual report.
@@ -135,6 +165,21 @@ def _check_internal(item: GuidanceItem, *, ticker: str) -> list[Mismatch]:
     if item.metric is Metric.REVENUE and item.unit is Unit.USD_PER_SHARE:
         problems.append("revenue guidance given per-share, which isn't a dollar amount")
 
+    if item.metric in _DOLLAR_METRICS and item.unit in _RATE_UNITS:
+        problems.append(
+            f"{item.metric.value} guidance given in {item.unit.value}, which is a "
+            "rate of change rather than the amount itself"
+        )
+
+    if item.unit in _DOLLAR_SCALED:
+        for bound in (item.low, item.high):
+            if bound is not None and abs(to_canonical(bound, item.unit)) > _ABSURD_USD:
+                problems.append(
+                    f"{item.metric.value} of {bound} {item.unit.value} is "
+                    f"{to_canonical(bound, item.unit):,.0f} USD, which is not a "
+                    "real company figure -- the unit is wrong"
+                )
+
     if item.metric is Metric.SEGMENT_REVENUE and not (item.metric_detail or "").strip():
         # Without a segment name the figure can't be attributed, compared
         # against anything, or told apart from another segment's guidance.
@@ -169,7 +214,9 @@ def _check_internal(item: GuidanceItem, *, ticker: str) -> list[Mismatch]:
             detail=problem,
             quote=item.quote,
         )
-        for problem in problems
+        # A point estimate has the same value on both bounds, so a bound-wise
+        # check would otherwise report the identical problem twice.
+        for problem in dict.fromkeys(problems)
     ]
 
 

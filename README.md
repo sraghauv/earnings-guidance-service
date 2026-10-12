@@ -39,6 +39,16 @@ alongside internal checks (impossible units, margins outside 0-100, a quarter
 number attached to a full-year period) and conflicts between two extractions
 for the same figure and period.
 
+Two unit errors get caught the same way, both found by extracting real calls
+rather than reasoned about in advance. An amount guided as a percentage is the
+model capturing a growth rate instead of a level ("services revenue up 26%"),
+and a dollar figure whose canonical value passes ten trillion is a scale
+mistake rather than a number — Apple's iPhone revenue came back as $75
+trillion once, a figure already in dollars that was labeled millions. The cap
+sits far enough out that it cannot fire on real guidance; across 35 extracted
+figures it flagged four, all of them genuinely wrong, and none of NVIDIA's
+sixteen plausible ones.
+
 Segment guidance gets its own arithmetic check. Reportable segments are
 disjoint parts of total revenue, so they can sum to less than the guided total
 but never to more. The comparison uses the sum of segment *lows* against the
