@@ -16,7 +16,13 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from egs.api.deps import get_app_settings, get_av_client, get_conn, get_provider
+from egs.api.deps import (
+    av_client_error,
+    get_app_settings,
+    get_av_client,
+    get_conn,
+    get_provider,
+)
 from egs.config import Settings
 from egs.llm.base import LLMProvider, ProviderError, SchemaViolation
 from egs.schemas import (
@@ -234,7 +240,8 @@ def get_valuation(
     period: str | None = None,
     shares_outstanding: float | None = Query(default=None, gt=0),
     conn: sqlite3.Connection = Depends(get_conn),
-    av_client: "AlphaVantageClient" = Depends(get_av_client),
+    av_client: "AlphaVantageClient | None" = Depends(get_av_client),
+    av_error: str = Depends(av_client_error),
 ) -> ValuationResult:
     ticker = ticker.upper()
     sql = "SELECT * FROM guidance_items WHERE ticker = ? AND metric = ?"
@@ -245,11 +252,46 @@ def get_valuation(
     sql += " ORDER BY id DESC LIMIT 1"
     row = conn.execute(sql, params).fetchone()
     if row is None:
-        detail = f"no EPS guidance stored for {ticker}"
-        if period:
-            detail += f" in period {period}"
-        raise HTTPException(status_code=404, detail=detail)
+        # Not a missing resource. Valuation runs off EPS guidance and plenty of
+        # companies never guide EPS -- NVIDIA guides revenue, margins, opex,
+        # OI&E, tax rate and capex and no EPS at all. So this is the ordinary
+        # can't-compute answer, reported the same way as the others below,
+        # naming what is stored so the caller isn't left guessing. A 404 is
+        # reserved for a ticker the database has never heard of.
+        stored = [
+            r["metric"]
+            for r in conn.execute(
+                "SELECT DISTINCT metric FROM guidance_items WHERE ticker = ?"
+                " ORDER BY metric",
+                (ticker,),
+            )
+        ]
+        if not stored:
+            detail = f"no guidance stored for {ticker}"
+            if period:
+                detail += f" in period {period}"
+            raise HTTPException(status_code=404, detail=detail)
+
+        scope = f" for {period}" if period else ""
+        return ValuationResult(
+            ticker=ticker,
+            computed=False,
+            reason=(
+                f"valuation needs EPS guidance and {ticker} has none stored"
+                f"{scope}; stored metrics are {', '.join(stored)}"
+            ),
+        )
     item = _row_to_guidance_item(row)
+
+    if av_client is None:
+        return ValuationResult(
+            ticker=ticker,
+            computed=False,
+            reason=(
+                f"{ticker} has EPS guidance stored but pricing it needs "
+                f"AlphaVantage: {av_error}"
+            ),
+        )
 
     try:
         from egs.valuation.multiples import value_from_guidance

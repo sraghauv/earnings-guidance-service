@@ -83,15 +83,20 @@ def get_provider(request: Request) -> "LLMProvider":
     return provider
 
 
-def get_av_client(request: Request) -> "AlphaVantageClient":
-    """Default dependency: the AlphaVantage client built at startup.
+def get_av_client(request: Request) -> "AlphaVantageClient | None":
+    """The AlphaVantage client built at startup, or None if there isn't one.
 
-    Unlike get_provider, missing here is not necessarily fatal to a request —
-    routes that can proceed without it should prefer getattr(..., None) over
-    depending on this directly.
+    Returns None rather than raising. Missing AlphaVantage is not fatal to a
+    request the way a missing provider is: /valuation still has to report
+    which metrics are stored and whether the ticker is known at all, and
+    raising 503 here meant that answer never ran. The route decides what a
+    missing client costs it.
     """
-    client = getattr(request.app.state, "av_client", None)
-    if client is None:
-        detail = getattr(request.app.state, "av_client_error", "no AlphaVantage key configured")
-        raise HTTPException(status_code=503, detail=f"AlphaVantage client unavailable: {detail}")
-    return client
+    return getattr(request.app.state, "av_client", None)
+
+
+def av_client_error(request: Request) -> str:
+    """Why there's no AlphaVantage client, for a caller-facing reason string."""
+    return getattr(
+        request.app.state, "av_client_error", "no AlphaVantage key configured"
+    )

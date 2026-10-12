@@ -22,7 +22,17 @@ from egs.api.main import create_app
 from egs.config import Settings
 from egs.db import connect, save_extraction, save_mismatches, upsert_transcript
 from egs.llm.base import Completion, LLMProvider, ProviderError
-from egs.schemas import GuidanceExtraction, Metric, Mismatch, MismatchKind
+from egs.schemas import (
+    Basis,
+    FiscalPeriod,
+    GuidanceExtraction,
+    GuidanceItem,
+    Metric,
+    Mismatch,
+    MismatchKind,
+    PeriodKind,
+    Unit,
+)
 
 
 class FakeProvider(LLMProvider):
@@ -154,10 +164,12 @@ def test_extract_404_on_unknown_transcript(app_client):
     assert resp.status_code == 404
 
 
-def test_valuation_404_when_no_eps_guidance_stored(app_client):
+def test_valuation_404_when_the_ticker_is_unknown(app_client):
+    """404 is reserved for a ticker the database has never seen."""
     client, _ = app_client
     resp = client.get("/valuation/NVDA")
     assert resp.status_code == 404
+    assert "no guidance stored" in resp.json()["detail"]
 
 
 def _store_eps_guidance(conn, transcript, items, cache_key="key-1"):
@@ -252,3 +264,39 @@ def test_mismatches_pagination(app_client):
 
     resp3 = client.get("/mismatches", params={"ticker": "AMD"})
     assert resp3.json()["total"] == 0
+
+
+def test_valuation_explains_itself_when_eps_is_not_among_the_stored_metrics(
+    app_client, sample_transcript
+):
+    """A company that guides revenue but not EPS isn't a 404.
+
+    Valuation runs off EPS guidance, and plenty of companies never give it --
+    NVIDIA guides revenue, margins, opex, OI&E, tax rate and capex and no EPS.
+    That's the ordinary can't-compute answer, so it's reported like the other
+    can't-compute cases rather than as a missing resource.
+    """
+    client, conn = app_client
+    revenue = GuidanceItem(
+        metric=Metric.REVENUE,
+        metric_detail=None,
+        period=FiscalPeriod(kind=PeriodKind.QUARTER, fiscal_year=2021, fiscal_quarter=1),
+        low=2.94,
+        high=3.06,
+        unit=Unit.USD_BILLIONS,
+        basis=Basis.UNSPECIFIED,
+        quote="We expect revenue to be $3 billion plus or minus 2%.",
+        speaker=None,
+        confidence=0.9,
+    )
+    _store_eps_guidance(conn, sample_transcript, [revenue])
+
+    resp = client.get("/valuation/NVDA")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["computed"] is False
+    assert body["valuation"] is None
+    assert "needs EPS guidance" in body["reason"]
+    # The caller is told what it can work with instead of guessing.
+    assert "revenue" in body["reason"]
