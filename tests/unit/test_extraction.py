@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from egs.config import Settings
-from egs.db import load_items, upsert_transcript
+from egs.db import connect, load_items, upsert_transcript
 from egs.extract import pipeline
 from egs.llm.fixture_provider import FixtureProvider
 
@@ -229,3 +229,54 @@ def test_extract_many_collects_failures_without_aborting(
     assert len(results) == 1
     assert len(failures) == 1
     assert failures[0].transcript_id == "NVDA-2026Q3-broken"
+
+
+def test_cache_hit_still_writes_to_the_database(
+    monkeypatch, tmp_path, tmp_db, sample_transcript
+):
+    """A cache hit skips the model, not the database.
+
+    Rebuilding a deleted database with a warm cache wrote nothing at all and
+    still exited zero, because the cache-hit path returned before persisting.
+    """
+    _patch_settings(monkeypatch, _settings(tmp_path))
+    upsert_transcript(tmp_db, sample_transcript)
+    provider = FixtureProvider(FIXTURES)
+    user_prompt = pipeline.build_user_prompt(pipeline.full_text(sample_transcript))
+    provider.mapping[user_prompt] = "clean.json"
+
+    first = pipeline.extract_guidance(
+        sample_transcript, provider, conn=tmp_db, use_cache=True
+    )
+    assert first.cache_hit is False
+    stored_once = len(load_items(tmp_db, sample_transcript.ticker))
+    assert stored_once > 0
+
+    # A second database, as if the first had been deleted and rebuilt.
+    rebuilt = connect(tmp_path / "rebuilt.db")
+    upsert_transcript(rebuilt, sample_transcript)
+    calls_before = provider.calls
+
+    second = pipeline.extract_guidance(
+        sample_transcript, provider, conn=rebuilt, use_cache=True
+    )
+
+    assert second.cache_hit is True
+    assert provider.calls == calls_before, "cache hit should not call the model"
+    assert len(load_items(rebuilt, sample_transcript.ticker)) == stored_once
+
+
+def test_upsert_transcript_commits_on_its_own(tmp_path, sample_transcript):
+    """The row has to survive the connection closing.
+
+    It used to rely on a later save_extraction to commit, so a cached
+    extraction left the transcript uncommitted and it vanished.
+    """
+    path = tmp_path / "commit.db"
+    conn = connect(path)
+    upsert_transcript(conn, sample_transcript)
+    conn.close()
+
+    reopened = connect(path)
+    count = reopened.execute("select count(*) from transcripts").fetchone()[0]
+    assert count == 1

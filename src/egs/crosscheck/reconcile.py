@@ -174,8 +174,10 @@ def _check_internal(item: GuidanceItem, *, ticker: str) -> list[Mismatch]:
 
 
 def _check_vs_reported(
-    items: list[GuidanceItem], *, client: AlphaVantageClient, ticker: str
+    items: list[GuidanceItem], *, client: AlphaVantageClient | None, ticker: str
 ) -> list[Mismatch]:
+    if client is None:
+        return []
     eps_items = [
         item
         for item in items
@@ -362,12 +364,18 @@ def _check_segment_sums(items: list[GuidanceItem], *, ticker: str) -> list[Misma
 
 
 def reconcile(
-    items: list[GuidanceItem], *, client: AlphaVantageClient, ticker: str
+    items: list[GuidanceItem], *, client: AlphaVantageClient | None, ticker: str
 ) -> list[Mismatch]:
     """Run every check and return all the mismatches found.
 
     Each check is independent and skips what it can't verify rather than
     guessing -- a false mismatch is worse than a missed one.
+
+    `client` may be None. Only the comparison against reported actuals needs
+    AlphaVantage; the internal, duplicate and segment-sum checks are pure
+    arithmetic on the items. Without this, a setup with no API key got no
+    consistency checking at all rather than the three quarters of it that work
+    offline.
     """
     mismatches: list[Mismatch] = []
     for item in items:

@@ -392,3 +392,30 @@ def test_segment_missing_a_low_bound_counts_as_zero():
         _total(20.0, 21.0),
     ]
     assert _check_segment_sums(items, ticker="MSFT") == []
+
+
+# ---- running without AlphaVantage ----
+
+
+def test_offline_checks_still_run_without_a_client():
+    """No API key costs only the comparison against reported actuals.
+
+    build_db skipped reconciliation entirely when no client could be built,
+    which silently lost the three checks that are pure arithmetic.
+    """
+    items = [
+        _seg("   ", 13.55, 13.8),
+        _seg("Intelligent Cloud", 30.0, 31.0),
+        _total(20.0, 21.0),
+    ]
+    mismatches = reconcile(items, client=None, ticker="MSFT")
+
+    kinds = {m.kind for m in mismatches}
+    assert MismatchKind.INTERNAL in kinds
+    assert any("names no segment" in m.detail for m in mismatches)
+    assert any("above the highest guided total" in m.detail for m in mismatches)
+
+
+def test_vs_reported_is_the_only_check_that_needs_a_client():
+    item = _item(fiscal_year=2027, fiscal_quarter=1, low=1.87 * 1.10, high=1.87 * 1.10)
+    assert [m.kind for m in reconcile([item], client=None, ticker="NVDA")] == []

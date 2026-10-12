@@ -125,6 +125,22 @@ Extractions are cached by `sha256(provider + model + prompt_version +
 schema_version + transcript)`, so reruns are free but editing the prompt
 correctly invalidates everything it touched.
 
+## What the valuation actually covers
+
+Worth being blunt about, because running it is how I found out. The valuation
+path is guided EPS times a peer median P/E, and plenty of companies never
+guide EPS. NVIDIA's Q4 FY2020 outlook guides revenue, gross margin, operating
+expenses, OI&E, tax rate and capex — and no EPS — so all sixteen extracted
+figures correctly value to nothing.
+
+A revenue-based path would need P/S, which needs a share count, which is on
+the premium `COMPANY_OVERVIEW` endpoint. Deriving EPS from guided revenue and
+a margin assumption would mean inventing the number the model is supposed to
+be reading, so the code returns nothing instead.
+
+Peer multiples use the median rather than the mean — one peer at a 300x P/E
+shouldn't move the comparison.
+
 ## Running it
 
 ```bash

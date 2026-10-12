@@ -68,8 +68,11 @@ def _extract_via_batch(transcripts, conn) -> list:
 
 
 def _reconcile_and_save(results, conn, av_client) -> None:
-    if av_client is None:
-        return
+    """Reconcile every extraction, with or without AlphaVantage.
+
+    A missing client only costs the comparison against reported actuals. The
+    internal, duplicate and segment-sum checks still run.
+    """
     from egs.crosscheck.reconcile import reconcile
 
     for result in results:
@@ -109,7 +112,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         av_client = build_av_client(settings)
     except Exception as exc:
-        print(f"AlphaVantage client unavailable, skipping reconciliation: {exc}", file=sys.stderr)
+        print(
+            f"no AlphaVantage client ({exc}) -- running the offline checks only, "
+            "without the comparison against reported actuals",
+            file=sys.stderr,
+        )
         av_client = None
 
     transcripts = list(

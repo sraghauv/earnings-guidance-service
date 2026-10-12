@@ -179,6 +179,44 @@ def merge_windows(
     )
 
 
+def _finish(
+    extraction: GuidanceExtraction,
+    *,
+    transcript: Transcript,
+    provider: LLMProvider,
+    key: str,
+    conn: sqlite3.Connection | None,
+    attempts: int,
+    dropped: int,
+    cache_hit: bool,
+    settings,
+    write_cache: bool,
+) -> ExtractionResult:
+    """Persist and cache an extraction, however it was obtained."""
+    if conn is not None:
+        db.save_extraction(
+            conn,
+            transcript.id,
+            extraction,
+            provider=provider.name,
+            model=provider.model,
+            prompt_version=PROMPT_VERSION,
+            schema_version=SCHEMA_VERSION,
+            cache_key=key,
+            repair_attempts=attempts,
+        )
+
+    if write_cache:
+        cache.put(settings.cache_dir, key, extraction.model_dump(mode="json"))
+
+    return ExtractionResult(
+        extraction=extraction,
+        repair_attempts=attempts,
+        cache_hit=cache_hit,
+        dropped_items=dropped,
+    )
+
+
 def extract_guidance(
     transcript: Transcript,
     provider: LLMProvider,
@@ -191,15 +229,28 @@ def extract_guidance(
     user_prompt = build_user_prompt(transcript_text)
     key = provider.cache_key(transcript_text=user_prompt, prompt_version=PROMPT_VERSION)
 
+    # A cache hit skips the model, not the database. Returning early here
+    # meant rebuilding a deleted database with a warm cache wrote nothing and
+    # still reported success.
+    cached_extraction: GuidanceExtraction | None = None
     if use_cache:
         cached = cache.get(settings.cache_dir, key)
         if cached is not None:
-            return ExtractionResult(
-                extraction=GuidanceExtraction.model_validate(cached),
-                repair_attempts=0,
-                cache_hit=True,
-                dropped_items=0,
-            )
+            cached_extraction = GuidanceExtraction.model_validate(cached)
+
+    if cached_extraction is not None:
+        return _finish(
+            cached_extraction,
+            transcript=transcript,
+            provider=provider,
+            key=key,
+            conn=conn,
+            attempts=0,
+            dropped=0,
+            cache_hit=True,
+            settings=settings,
+            write_cache=False,
+        )
 
     schema = GuidanceExtraction.model_json_schema()
     windows = guidance_windows(transcript)
@@ -228,27 +279,17 @@ def extract_guidance(
     extraction = merge_windows(per_window, ticker=transcript.ticker)
     extraction, dropped = drop_fabricated_quotes(extraction, transcript_text)
 
-    if conn is not None:
-        db.save_extraction(
-            conn,
-            transcript.id,
-            extraction,
-            provider=provider.name,
-            model=provider.model,
-            prompt_version=PROMPT_VERSION,
-            schema_version=SCHEMA_VERSION,
-            cache_key=key,
-            repair_attempts=attempts,
-        )
-
-    if use_cache:
-        cache.put(settings.cache_dir, key, extraction.model_dump(mode="json"))
-
-    return ExtractionResult(
-        extraction=extraction,
-        repair_attempts=attempts,
+    return _finish(
+        extraction,
+        transcript=transcript,
+        provider=provider,
+        key=key,
+        conn=conn,
+        attempts=attempts,
+        dropped=dropped,
         cache_hit=False,
-        dropped_items=dropped,
+        settings=settings,
+        write_cache=use_cache,
     )
 
 

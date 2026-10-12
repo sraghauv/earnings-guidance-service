@@ -133,6 +133,10 @@ def upsert_transcript(conn: sqlite3.Connection, t: Transcript) -> None:
             t.qa,
         ),
     )
+    # Commit here rather than relying on a later save_extraction to do it --
+    # a cached extraction used to leave this insert uncommitted, so the row
+    # vanished when the connection closed.
+    conn.commit()
 
 
 def save_extraction(
