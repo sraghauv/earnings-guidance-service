@@ -6,10 +6,10 @@ goes out by default, that a key without the beta still gets its extraction,
 and that an unrelated 400 isn't retried into a second wasted request.
 """
 
+import anthropic
 import httpx
 import pytest
 
-import anthropic
 from egs.llm.anthropic_provider import FALLBACK_BETA, AnthropicProvider
 from egs.llm.base import ProviderError
 

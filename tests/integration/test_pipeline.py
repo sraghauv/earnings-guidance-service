@@ -134,7 +134,7 @@ def test_reconcile_and_valuation_from_persisted_guidance(tmp_path, fixtures_dir)
             client=av_client,
             shares_outstanding=2_400_000_000,
         )
-    except Exception as exc:  # noqa: BLE001 -- interface drift, not a real failure
+    except Exception as exc:
         pytest.skip(f"crosscheck/valuation interface differs from what was agreed: {exc}")
 
     assert isinstance(mismatches, list)

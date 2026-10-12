@@ -7,6 +7,7 @@ custom_id rather than position, and per-window failures not taking the rest of
 the transcript down with them.
 """
 
+import json
 from datetime import date
 from types import SimpleNamespace
 
@@ -36,13 +37,31 @@ def _transcript(tid: str, ticker: str, prepared: str) -> Transcript:
 
 
 def _extraction_json(ticker: str, quote: str, low: float, high: float) -> str:
-    return (
-        '{"ticker": "%s", "no_guidance_given": false, "extraction_notes": null,'
-        ' "items": [{"metric": "revenue", "metric_detail": null,'
-        ' "period": {"kind": "quarter", "fiscal_year": 2021, "fiscal_quarter": 1},'
-        ' "low": %s, "high": %s, "unit": "usd_billions", "basis": "unspecified",'
-        ' "quote": "%s", "speaker": null, "confidence": 0.9}]}'
-        % (ticker, low, high, quote)
+    """One revenue item, as the model would return it."""
+    return json.dumps(
+        {
+            "ticker": ticker,
+            "no_guidance_given": False,
+            "extraction_notes": None,
+            "items": [
+                {
+                    "metric": "revenue",
+                    "metric_detail": None,
+                    "period": {
+                        "kind": "quarter",
+                        "fiscal_year": 2021,
+                        "fiscal_quarter": 1,
+                    },
+                    "low": low,
+                    "high": high,
+                    "unit": "usd_billions",
+                    "basis": "unspecified",
+                    "quote": quote,
+                    "speaker": None,
+                    "confidence": 0.9,
+                }
+            ],
+        }
     )
 
 
@@ -159,6 +178,7 @@ def test_fabricated_quote_is_dropped_after_merge():
     )
     results, failures = collect_results("batch_test", [t], client=client)
 
+    assert failures == []
     assert len(results) == 1
     assert results[0].dropped_items == 1
     assert results[0].extraction.items == []

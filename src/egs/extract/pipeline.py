@@ -14,9 +14,9 @@ from pydantic import ValidationError
 
 from egs import db
 from egs.config import get_settings
+from egs.extract.windows import guidance_windows
 from egs.llm import cache
 from egs.llm.base import SCHEMA_VERSION, LLMProvider, ProviderError
-from egs.extract.windows import guidance_windows
 from egs.llm.prompt import PROMPT_VERSION, SYSTEM_PROMPT, build_user_prompt
 from egs.schemas import GuidanceExtraction, GuidanceItem, Transcript
 

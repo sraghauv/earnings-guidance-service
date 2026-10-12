@@ -6,7 +6,15 @@ from pathlib import Path
 import pytest
 
 from egs.db import connect
-from egs.schemas import Basis, FiscalPeriod, GuidanceItem, Metric, PeriodKind, Transcript, Unit
+from egs.schemas import (
+    Basis,
+    FiscalPeriod,
+    GuidanceItem,
+    Metric,
+    PeriodKind,
+    Transcript,
+    Unit,
+)
 
 
 @pytest.fixture

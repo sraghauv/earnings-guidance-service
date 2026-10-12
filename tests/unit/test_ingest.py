@@ -7,7 +7,7 @@ instead of touching the 1.7GB fixture — that file is never read in tests.
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from egs.ingest.normalize import split_call, speaker_turns, strip_boilerplate
+from egs.ingest.normalize import speaker_turns, split_call, strip_boilerplate
 from egs.ingest.parquet_loader import available_tickers, iter_transcripts
 
 SCHEMA = pa.schema(

@@ -19,7 +19,15 @@ from egs.crosscheck.reconcile import (
     fiscal_year_end_month,
     reconcile,
 )
-from egs.schemas import Basis, FiscalPeriod, GuidanceItem, Metric, MismatchKind, PeriodKind, Unit
+from egs.schemas import (
+    Basis,
+    FiscalPeriod,
+    GuidanceItem,
+    Metric,
+    MismatchKind,
+    PeriodKind,
+    Unit,
+)
 
 
 @pytest.fixture

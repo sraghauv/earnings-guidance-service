@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.6"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -27,3 +27,21 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 88
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
+# E501 is handled by review, not the linter -- a few long lines read better
+# than the wrapping needed to avoid them.
+# RUF001: curly apostrophes are data here, not typos. normalize.py straightens
+# them deliberately and a test asserts that behaviour, so the literal U+2019
+# has to stay exactly where it is.
+ignore = ["E501", "RUF001"]
+
+[tool.ruff.lint.per-file-ignores]
+# Depends() and Query() in argument defaults is how FastAPI declares
+# dependencies; B008 is a false positive on every route.
+"src/egs/api/*.py" = ["B008"]

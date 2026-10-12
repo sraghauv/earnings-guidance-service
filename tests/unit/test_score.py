@@ -17,33 +17,33 @@ Q1 = FiscalPeriod(kind=PeriodKind.QUARTER, fiscal_year=2021, fiscal_quarter=1)
 
 
 def _item(**overrides) -> GuidanceItem:
-    defaults = dict(
-        metric=Metric.REVENUE,
-        metric_detail=None,
-        period=Q1,
-        low=2.94,
-        high=3.06,
-        unit=Unit.USD_BILLIONS,
-        basis=Basis.UNSPECIFIED,
-        quote="We expect revenue to be $3 billion plus or minus 2%.",
-        speaker=None,
-        confidence=0.9,
-    )
+    defaults = {
+        "metric": Metric.REVENUE,
+        "metric_detail": None,
+        "period": Q1,
+        "low": 2.94,
+        "high": 3.06,
+        "unit": Unit.USD_BILLIONS,
+        "basis": Basis.UNSPECIFIED,
+        "quote": "We expect revenue to be $3 billion plus or minus 2%.",
+        "speaker": None,
+        "confidence": 0.9,
+    }
     defaults.update(overrides)
     return GuidanceItem(**defaults)
 
 
 def _gold_item(**overrides) -> GoldItem:
-    defaults = dict(
-        metric=Metric.REVENUE,
-        metric_detail=None,
-        basis=Basis.UNSPECIFIED,
-        period_label="FY2021Q1",
-        low=2.94,
-        high=3.06,
-        unit=Unit.USD_BILLIONS,
-        source="We expect revenue to be $3 billion plus or minus 2%.",
-    )
+    defaults = {
+        "metric": Metric.REVENUE,
+        "metric_detail": None,
+        "basis": Basis.UNSPECIFIED,
+        "period_label": "FY2021Q1",
+        "low": 2.94,
+        "high": 3.06,
+        "unit": Unit.USD_BILLIONS,
+        "source": "We expect revenue to be $3 billion plus or minus 2%.",
+    }
     defaults.update(overrides)
     return GoldItem(**defaults)
 

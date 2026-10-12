@@ -95,16 +95,18 @@ def values_agree(
     something unit conversion can paper over. Both sides null can't happen;
     GuidanceItem's validator already rejects that.
     """
+    # The two noqa'd branches below stay nested on purpose: collapsing each
+    # guard into its isclose call makes one condition too long to read.
     if (gold_low is None) != (got_low is None):
         return False
     if (gold_high is None) != (got_high is None):
         return False
-    if gold_low is not None and got_low is not None:
+    if gold_low is not None and got_low is not None:  # noqa: SIM102
         if not math.isclose(
             to_canonical(gold_low, gold_unit), to_canonical(got_low, got_unit), rel_tol=rel_tol
         ):
             return False
-    if gold_high is not None and got_high is not None:
+    if gold_high is not None and got_high is not None:  # noqa: SIM102
         if not math.isclose(
             to_canonical(gold_high, gold_unit), to_canonical(got_high, got_unit), rel_tol=rel_tol
         ):
