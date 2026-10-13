@@ -280,3 +280,57 @@ def test_upsert_transcript_commits_on_its_own(tmp_path, sample_transcript):
     reopened = connect(path)
     count = reopened.execute("select count(*) from transcripts").fetchone()[0]
     assert count == 1
+
+
+def test_quarter_without_a_quarter_number_is_dropped_not_stored():
+    """A quarter with no quarter number labels itself as a fiscal year.
+
+    FiscalPeriod.label() falls through to "FY2016" when fiscal_quarter is
+    null, which is exactly what a legitimate full-year period produces. Seven
+    of thirty-five figures in a real extraction run arrived in that state, so
+    a fifth of the database was quarters masquerading as fiscal years. The
+    item is dropped now rather than persisted under the wrong period.
+    """
+    payload = {
+        "ticker": "AAPL",
+        "no_guidance_given": False,
+        "extraction_notes": None,
+        "items": [
+            {
+                "metric": "revenue",
+                "metric_detail": None,
+                "period": {
+                    "kind": "quarter",
+                    "fiscal_year": 2016,
+                    "fiscal_quarter": None,
+                },
+                "low": 11.9,
+                "high": 12.0,
+                "unit": "usd_billions",
+                "basis": "unspecified",
+                "quote": "we expect revenue between $11.9 billion and $12 billion",
+                "speaker": None,
+                "confidence": 0.9,
+            },
+            {
+                "metric": "revenue",
+                "metric_detail": None,
+                "period": {
+                    "kind": "quarter",
+                    "fiscal_year": 2016,
+                    "fiscal_quarter": 2,
+                },
+                "low": 11.9,
+                "high": 12.0,
+                "unit": "usd_billions",
+                "basis": "unspecified",
+                "quote": "we expect revenue between $11.9 billion and $12 billion",
+                "speaker": None,
+                "confidence": 0.9,
+            },
+        ],
+    }
+    extraction, dropped = pipeline.parse_lenient(json.dumps(payload))
+
+    assert dropped == 1
+    assert [i.period.label() for i in extraction.items] == ["FY2016Q2"]

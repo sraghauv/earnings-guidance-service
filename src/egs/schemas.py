@@ -58,6 +58,32 @@ class FiscalPeriod(BaseModel):
     # Set for kind=quarter (1-4) and kind=half (1-2); null otherwise.
     fiscal_quarter: int | None
 
+    @model_validator(mode="after")
+    def _check_quarter(self) -> "FiscalPeriod":
+        """A sub-annual period has to say which part of the year it is.
+
+        Not pedantry -- `label()` falls through to "FY2016" for a quarter with
+        no quarter number, which is the same label a legitimate full-year
+        period produces. That collision propagates into the stored
+        period_label, the duplicate-conflict key, the eval match key and the
+        segment-sum grouping, so a quarter silently counts as a fiscal year
+        everywhere. Rejecting it here means the lenient parser drops the item
+        instead of persisting a figure under the wrong period.
+        """
+        needs_quarter = self.kind in (PeriodKind.QUARTER, PeriodKind.HALF)
+        if needs_quarter and self.fiscal_quarter is None:
+            raise ValueError(f"{self.kind.value} period needs a fiscal_quarter")
+        if not needs_quarter and self.fiscal_quarter is not None:
+            raise ValueError(
+                f"{self.kind.value} period cannot have fiscal_quarter "
+                f"{self.fiscal_quarter}"
+            )
+        if self.kind is PeriodKind.QUARTER and not 1 <= (self.fiscal_quarter or 0) <= 4:
+            raise ValueError(f"fiscal_quarter {self.fiscal_quarter} is not 1-4")
+        if self.kind is PeriodKind.HALF and not 1 <= (self.fiscal_quarter or 0) <= 2:
+            raise ValueError(f"half {self.fiscal_quarter} is not 1-2")
+        return self
+
     def label(self) -> str:
         if self.kind is PeriodKind.QUARTER and self.fiscal_quarter:
             return f"FY{self.fiscal_year}Q{self.fiscal_quarter}"

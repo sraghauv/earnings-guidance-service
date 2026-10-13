@@ -39,6 +39,15 @@ alongside internal checks (impossible units, margins outside 0-100, a quarter
 number attached to a full-year period) and conflicts between two extractions
 for the same figure and period.
 
+One error is rejected outright rather than flagged. A quarter with no quarter
+number labels itself "FY2016" — the same label a legitimate full-year period
+produces — and that label is what the stored row, the duplicate key, the eval
+match key and the segment grouping all key on, so the quarter silently counts
+as a fiscal year everywhere downstream. Seven of thirty-five figures in a real
+run arrived that way. `FiscalPeriod` refuses to build one now, so the item is
+dropped instead of persisted under the wrong period, and the reconcile check
+for it stays as a net for anything reaching that code by another path.
+
 Two unit errors get caught the same way, both found by extracting real calls
 rather than reasoned about in advance. An amount guided as a percentage is the
 model capturing a growth rate instead of a level ("services revenue up 26%"),

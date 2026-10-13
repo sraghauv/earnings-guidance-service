@@ -10,6 +10,7 @@ import json
 from datetime import date
 
 import pytest
+from pydantic import ValidationError
 
 from egs.crosscheck.alphavantage import FixtureAlphaVantageClient
 from egs.crosscheck.reconcile import (
@@ -149,15 +150,32 @@ def test_margin_wrong_unit_flagged_internal(av_client):
     assert any("expected percent" in m.detail for m in internal)
 
 
+def _unvalidated_period(kind, fiscal_year, fiscal_quarter):
+    """A period FiscalPeriod's validator would now refuse to build.
+
+    These two combinations are rejected at construction, so the reconcile
+    checks for them are a defense-in-depth net for an item that reached the
+    function by some other path. Reaching that net from a test means skipping
+    validation on the way in.
+    """
+    return FiscalPeriod.model_construct(
+        kind=kind, fiscal_year=fiscal_year, fiscal_quarter=fiscal_quarter
+    )
+
+
 def test_quarter_period_missing_fiscal_quarter_flagged_internal(av_client):
-    item = _item(kind=PeriodKind.QUARTER, fiscal_quarter=None)
+    item = _item().model_copy(
+        update={"period": _unvalidated_period(PeriodKind.QUARTER, 2026, None)}
+    )
     mismatches = reconcile([item], client=av_client, ticker="AMD")
     internal = [m for m in mismatches if m.kind is MismatchKind.INTERNAL]
     assert any("missing fiscal_quarter" in m.detail for m in internal)
 
 
 def test_fiscal_year_period_with_fiscal_quarter_set_flagged_internal(av_client):
-    item = _item(metric=Metric.REVENUE, kind=PeriodKind.FISCAL_YEAR, fiscal_quarter=2, low=1.0, high=2.0, unit=Unit.USD_BILLIONS)
+    item = _item(metric=Metric.REVENUE, low=1.0, high=2.0, unit=Unit.USD_BILLIONS).model_copy(
+        update={"period": _unvalidated_period(PeriodKind.FISCAL_YEAR, 2026, 2)}
+    )
     mismatches = reconcile([item], client=av_client, ticker="AMD")
     internal = [m for m in mismatches if m.kind is MismatchKind.INTERNAL]
     assert any("fiscal_quarter set to 2" in m.detail for m in internal)
@@ -484,3 +502,23 @@ def test_percent_metrics_are_not_magnitude_checked(av_client):
     item = _item(metric=Metric.TAX_RATE, low=9.0, high=9.0, unit=Unit.PERCENT)
     mismatches = reconcile([item], client=av_client, ticker="NVDA")
     assert not [m for m in mismatches if "unit is wrong" in m.detail]
+
+
+def test_a_quarter_label_can_never_collide_with_a_fiscal_year_label():
+    """The collision this validator exists to prevent."""
+    with pytest.raises(ValidationError):
+        FiscalPeriod(kind=PeriodKind.QUARTER, fiscal_year=2016, fiscal_quarter=None)
+
+    year = FiscalPeriod(
+        kind=PeriodKind.FISCAL_YEAR, fiscal_year=2016, fiscal_quarter=None
+    )
+    quarter = FiscalPeriod(
+        kind=PeriodKind.QUARTER, fiscal_year=2016, fiscal_quarter=1
+    )
+    assert year.label() != quarter.label()
+
+
+def test_out_of_range_quarter_numbers_are_rejected():
+    for kind, bad in [(PeriodKind.QUARTER, 5), (PeriodKind.QUARTER, 0), (PeriodKind.HALF, 3)]:
+        with pytest.raises(ValidationError):
+            FiscalPeriod(kind=kind, fiscal_year=2026, fiscal_quarter=bad)
