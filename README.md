@@ -106,11 +106,21 @@ end. With gemma3:4b:
 nvda-2020q4   recall=0.20  precision=0.33  value_accuracy=0.50
 aapl-2020q3   recall=0.00  precision=0.00
 msft-2021q1   recall=0.00  precision=0.00
-aggregate     recall=0.11  precision=0.25  value_accuracy=0.50
+aggregate     recall=0.11  precision=0.29  value_accuracy=0.50
 ```
 
 The first labeled call flattered the model. One transcript gave recall 0.20;
 three give 0.11, which is what adding calls to a benchmark is supposed to do.
+
+Precision was 0.25 before the fiscal-period validator landed. The item it
+gained was an Apple revenue figure labeled FY2016 — a quarter that never said
+which quarter — which is now dropped at parse time instead of counted as a
+wrong answer. The other four false positives are identical across runs.
+
+Numbers move a little between runs even at temperature 0: the same Microsoft
+figure came back as `None-20.0 percent` on one run and `13.2-13.6
+usd_billions` on the next, keeping its key and changing its values. Three
+labeled calls is not enough to read small differences into.
 
 The failures are the model, not the retrieval. All five of Microsoft's guided
 figures sit inside the 6,859 characters the windower hands over, and the model
