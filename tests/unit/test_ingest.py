@@ -7,7 +7,12 @@ instead of touching the 1.7GB fixture — that file is never read in tests.
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from egs.ingest.normalize import speaker_turns, split_call, strip_boilerplate
+from egs.ingest.normalize import (
+    MAX_BOILERPLATE_CHARS,
+    speaker_turns,
+    split_call,
+    strip_boilerplate,
+)
 from egs.ingest.parquet_loader import available_tickers, iter_transcripts
 
 SCHEMA = pa.schema(
@@ -316,3 +321,74 @@ def test_regex_fallback_skips_a_cue_in_the_opening_paragraph():
     prepared, qa = split_call(None, content)
     assert "We expect revenue to be $3 billion" in prepared
     assert qa.startswith("Our first question will come from")
+
+
+def test_company_run_qa_without_an_operator_is_still_a_boundary():
+    """Tesla takes written retail and institutional questions before analysts.
+
+    There's no operator hand-off at all -- the company's own line opens the
+    Q&A -- so three of ten Tesla calls found no boundary and kept the whole
+    transcript as prepared remarks.
+    """
+    for cue in [
+        "And we will now take questions from institutional and retail shareholders.",
+        "And we will first take a retail questions from, say, our website.",
+        "Let's now go to investor questions.",
+        "And now let's go to analyst questions.",
+        "Thank you and we will open it up for questions.",
+    ]:
+        structured = [
+            {"speaker": "Operator", "text": "Welcome to the call."},
+            {"speaker": "CFO", "text": "We expect revenue of $3 billion."},
+            {"speaker": "IR", "text": cue},
+        ]
+        prepared, qa = split_call(structured, content=None)
+        assert "We expect revenue of $3 billion." in prepared, cue
+        assert qa == cue, cue
+
+
+def test_a_presentation_containing_a_disclaimer_is_not_boilerplate():
+    """Costco's CFO reads the safe harbor and the whole presentation as one turn.
+
+    A speaker turn is one paragraph here, so matching the disclaimer and
+    dropping the paragraph deleted all 19,952 characters of prepared remarks
+    on three of Costco's four calls -- and prepared remarks are where guidance
+    lives.
+    """
+    presentation = (
+        "Thank you and good afternoon. I will start by stating that these "
+        "discussions will include forward-looking statements within the meaning "
+        "of the Private Securities Litigation Reform Act, which involve risks "
+        "and uncertainties that could cause results to differ materially. "
+        + "Comparable sales rose and we expect capital expenditure of $900 million. " * 60
+    )
+    assert len(presentation) > MAX_BOILERPLATE_CHARS
+    kept = strip_boilerplate(presentation)
+    assert "capital expenditure of $900 million" in kept
+    # Nothing removed at all -- only surrounding whitespace.
+    assert kept == presentation.strip()
+
+
+def test_short_disclaimer_paragraphs_are_still_dropped():
+    text = (
+        "Ladies and gentlemen, thank you for standing by and welcome to the call.\n\n"
+        "We expect revenue of $3 billion in the fourth quarter.\n\n"
+        "This call contains forward-looking statements involving risks and "
+        "uncertainties that could cause actual results to differ materially."
+    )
+    kept = strip_boilerplate(text)
+    assert kept == "We expect revenue of $3 billion in the fourth quarter."
+
+
+def test_operator_opening_plus_one_long_turn_keeps_the_long_turn():
+    """The real COST-2020Q3 shape: 421 chars of housekeeping, then 20k of remarks."""
+    text = (
+        "Ladies and gentlemen, thank you for standing by and welcome to the Q3 "
+        "earnings call. All participants are in a listen-only mode.\n\n"
+        "Thank you. These discussions include forward-looking statements with "
+        "risks and uncertainties. "
+        + "We expect membership fee income to grow. " * 80
+    )
+    kept = strip_boilerplate(text)
+    assert "Ladies and gentlemen" not in kept
+    assert "membership fee income" in kept

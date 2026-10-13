@@ -27,6 +27,15 @@ _STRONG_CUES = (
     "may have the first question",
     "let's open the call to questions",
     "open the line for questions",
+    "open it up for questions",
+    # Tesla takes written questions from retail and institutional holders
+    # before analysts, so its hand-off is the company's own line rather than
+    # an operator's.
+    "now take questions from",
+    "take a retail question",
+    "retail questions from",
+    "go to investor questions",
+    "go to analyst questions",
 )
 
 # "...session" on its own also shows up in the operator's opening housekeeping
@@ -93,9 +102,13 @@ def _find_cue(text: str) -> re.Match | None:
 _TITLE_SPLIT = re.compile(r"\s*,\s*|\s+-\s+")
 
 # Paragraph-level boilerplate: operator housekeeping and the safe-harbor legal
-# disclaimer. These are reliably whole, self-contained paragraphs/turns on
-# every call in this dataset, so dropping a matching paragraph outright is
-# safe — it never shares a paragraph with real guidance.
+# disclaimer. Usually these are whole self-contained paragraphs, but not
+# always -- see MAX_BOILERPLATE_CHARS.
+# A paragraph longer than this is a presentation that happens to contain a
+# disclaimer, not a disclaimer. Observed boilerplate paragraphs sit around 400
+# characters; the prepared-remarks turns this used to eat were 20k.
+MAX_BOILERPLATE_CHARS = 1500
+
 _BOILERPLATE_PATTERNS = (
     re.compile(r"ladies and gentlemen.{0,80}welcome to", re.IGNORECASE | re.DOTALL),
     re.compile(r"all participants (are|will be) in a listen-only mode", re.IGNORECASE),
@@ -192,9 +205,23 @@ def _regex_split(content: str | None) -> tuple[str, str]:
 
 
 def strip_boilerplate(text: str) -> str:
-    """Drop operator housekeeping and safe-harbor paragraphs from `text`."""
+    """Drop operator housekeeping and safe-harbor paragraphs from `text`.
+
+    Only short paragraphs are eligible. A speaker turn is one paragraph here,
+    and some CFOs read the safe-harbor sentence and the entire presentation as
+    a single turn -- Costco's does, in a 19,952-character paragraph. Matching
+    on the disclaimer and dropping the paragraph deleted every word of the
+    prepared remarks on three of its four calls, and prepared remarks are
+    where guidance lives. Real boilerplate here runs a few hundred characters.
+
+    """
     if not text:
         return text
     paragraphs = re.split(r"\n{2,}", text)
-    kept = [p for p in paragraphs if not any(pat.search(p) for pat in _BOILERPLATE_PATTERNS)]
+    kept = [
+        p
+        for p in paragraphs
+        if len(p) > MAX_BOILERPLATE_CHARS
+        or not any(pat.search(p) for pat in _BOILERPLATE_PATTERNS)
+    ]
     return "\n\n".join(kept).strip()

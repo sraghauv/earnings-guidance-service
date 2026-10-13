@@ -85,6 +85,16 @@ reports no guidance at all rather than erroring. gemma3:4b returns
 that same call's outlook paragraph. A transcript is about 12k tokens and the
 guidance occupies a few hundred of them.
 
+Getting the prepared remarks *to* the windower turned out to be the harder
+half. A speaker turn is one paragraph, and some CFOs read the safe-harbor
+sentence and the entire presentation as a single turn — Costco's does, in a
+19,952-character paragraph. Boilerplate stripping matched the disclaimer and
+dropped the paragraph, so three of Costco's four calls arrived with zero
+prepared remarks. Only short paragraphs are eligible to be stripped now.
+Tesla needed the opposite fix: it takes written retail and institutional
+questions before analysts, so its Q&A opens on the company's own line rather
+than an operator's and three of ten calls found no boundary at all.
+
 So `extract/windows.py` narrows the call first, from outlook cues where they
 exist and from ranked overlapping chunks where they don't, and the pipeline
 merges per-window results keyed on metric, detail, period and basis. Across 48
