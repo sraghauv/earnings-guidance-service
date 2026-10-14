@@ -192,6 +192,10 @@ be reading, so the code returns nothing instead.
 Peer multiples use the median rather than the mean — one peer at a 300x P/E
 shouldn't move the comparison.
 
+`build_db` keeps each valuation it can compute. A stored row is a snapshot
+rather than a cache: the implied price depends on the quote at the time, so
+rows accumulate with a timestamp instead of replacing each other.
+
 ## Running it
 
 ```bash

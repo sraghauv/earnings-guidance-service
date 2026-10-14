@@ -13,9 +13,10 @@ import sys
 
 from egs.api.deps import build_av_client, build_provider
 from egs.config import get_settings
-from egs.db import save_mismatches, upsert_transcript
+from egs.db import load_items, save_mismatches, save_valuation, upsert_transcript
 from egs.extract import pipeline
 from egs.llm.base import ProviderError
+from egs.schemas import Metric
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -89,6 +90,40 @@ def _reconcile_and_save(results, conn, av_client) -> None:
             print(f"{ticker}: {n} mismatches saved", file=sys.stderr)
 
 
+def _value_and_save(results, conn, av_client) -> None:
+    """Price the stored EPS guidance and keep each valuation.
+
+    Nothing wrote the valuations table before this -- `save_valuation` had no
+    caller at all, so the table and its index were permanently empty while the
+    pipeline advertised a peer-multiple valuation. Needs AlphaVantage for the
+    peers' prices and earnings, so it is skipped without a client.
+
+    A stored row is a snapshot: the implied price depends on the quote at the
+    time, which is why the table records `created_at` and why this appends
+    rather than replacing.
+    """
+    if av_client is None:
+        return
+    from egs.valuation.multiples import value_from_guidance
+
+    for ticker in sorted({r.extraction.ticker for r in results}):
+        eps_items = [i for i in load_items(conn, ticker) if i.metric is Metric.EPS]
+        if not eps_items:
+            continue
+        saved = 0
+        for item in eps_items:
+            try:
+                valuation = value_from_guidance(item, ticker=ticker, client=av_client)
+            except Exception as exc:
+                print(f"valuation failed for {ticker}: {exc}", file=sys.stderr)
+                continue
+            if valuation is not None:
+                save_valuation(conn, valuation)
+                saved += 1
+        if saved:
+            print(f"{ticker}: {saved} valuations saved", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     settings = get_settings()
@@ -104,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     years = [int(y) for y in args.years.split(",")] if args.years else None
 
     from egs.db import connect
-    from egs.ingest.parquet_loader import iter_transcripts
+    from egs.ingest.parquet_loader import available_tickers, iter_transcripts
 
     conn = connect(settings.db_path)
     provider = build_provider(settings)
@@ -123,7 +158,19 @@ def main(argv: list[str] | None = None) -> int:
         iter_transcripts(settings.transcripts_parquet, tickers=tickers, years=years, limit=args.limit)
     )
     if not transcripts:
-        print(f"no transcripts found for {tickers}", file=sys.stderr)
+        # Name the ones that don't exist. A typo otherwise reads as "the
+        # corpus has nothing for you" after a slow full scan.
+        known = set(available_tickers(settings.transcripts_parquet))
+        unknown = [t for t in tickers if t not in known]
+        if unknown:
+            print(
+                f"no such ticker in the corpus: {', '.join(unknown)}", file=sys.stderr
+            )
+        else:
+            print(
+                f"no transcripts matched {tickers} with the given years/limit",
+                file=sys.stderr,
+            )
         return 1
 
     print(f"ingesting {len(transcripts)} transcripts", file=sys.stderr)
@@ -137,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"extracted {len(results)}/{len(transcripts)} transcripts", file=sys.stderr)
     _reconcile_and_save(results, conn, av_client)
+    _value_and_save(results, conn, av_client)
 
     conn.close()
     return 0 if results else 1
