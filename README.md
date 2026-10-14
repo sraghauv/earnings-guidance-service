@@ -95,6 +95,18 @@ Tesla needed the opposite fix: it takes written retail and institutional
 questions before analysts, so its Q&A opens on the company's own line rather
 than an operator's and three of ten calls found no boundary at all.
 
+Walmart showed the third variant. Its IR host previews the agenda — "that will
+be followed by our question-and-answer session" — and the guard for exactly
+that kind of forward reference allowed only "followed by a", so the host's
+intro became the boundary and the executives' remarks all landed in the Q&A.
+Beyond widening the guard, a weak cue is now only believed once the turns
+before it hold a plausible amount of prepared remarks; an operator line plus a
+short host intro isn't one, whatever the phrasing says. Strong cues are
+unambiguous hand-offs and stay trusted wherever they appear.
+
+Across 48 calls that leaves no transcript with empty prepared remarks, down
+from four.
+
 So `extract/windows.py` narrows the call first, from outlook cues where they
 exist and from ranked overlapping chunks where they don't, and the pipeline
 merges per-window results keyed on metric, detail, period and basis. Across 48

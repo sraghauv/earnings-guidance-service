@@ -53,9 +53,12 @@ _STRONG_PATTERN = re.compile(
 _WEAK_PATTERN = re.compile(
     "(" + "|".join(re.escape(c) for c in _WEAK_CUES) + ")", re.IGNORECASE
 )
+# The determiner list matters: Walmart's IR host says "that will be followed
+# by *our* question-and-answer session", and allowing only "a" let that
+# forward reference through as if it were the hand-off.
 _FORWARD_REFERENCE_BEFORE = re.compile(
     r"(there(?:'ll|’ll| will)\s*be|will (?:be|conduct|hold|have|open)|followed by)"
-    r"\s*a?\s*$",
+    r"\s*(?:a|an|our|the|its|this)?\s*$",
     re.IGNORECASE,
 )
 _FORWARD_REFERENCE_AFTER = re.compile(
@@ -109,6 +112,14 @@ _TITLE_SPLIT = re.compile(r"\s*,\s*|\s+-\s+")
 # characters; the prepared-remarks turns this used to eat were 20k.
 MAX_BOILERPLATE_CHARS = 1500
 
+# A weak cue is only believed when the turns before it hold a plausible amount
+# of prepared remarks. Walmart's host intro runs about 1.3k characters and the
+# operator's housekeeping a few hundred, while the executives' remarks that
+# follow run tens of thousands -- so a weak boundary landing that early is
+# mis-splitting the call, whatever the phrasing. Strong cues are unambiguous
+# hand-offs and stay trusted wherever they appear.
+MIN_PREPARED_FOR_WEAK_CUE = 2000
+
 _BOILERPLATE_PATTERNS = (
     re.compile(r"ladies and gentlemen.{0,80}welcome to", re.IGNORECASE | re.DOTALL),
     re.compile(r"all participants (are|will be) in a listen-only mode", re.IGNORECASE),
@@ -151,13 +162,20 @@ def _boundary_turn(turns: list[tuple[str, str]]) -> int | None:
     before its Q&A.
     """
     weak: int | None = None
+    running = 0
     for i, (_, text) in enumerate(turns):
         if i == 0:
+            running += len(text)
             continue
         if _strong_match(text):
             return i
-        if weak is None and _weak_match(text):
+        if (
+            weak is None
+            and running >= MIN_PREPARED_FOR_WEAK_CUE
+            and _weak_match(text)
+        ):
             weak = i
+        running += len(text)
     return weak
 
 

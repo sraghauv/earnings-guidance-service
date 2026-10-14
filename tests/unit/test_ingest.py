@@ -392,3 +392,58 @@ def test_operator_opening_plus_one_long_turn_keeps_the_long_turn():
     kept = strip_boilerplate(text)
     assert "Ladies and gentlemen" not in kept
     assert "membership fee income" in kept
+
+
+def test_host_intro_previewing_the_qa_is_not_the_boundary():
+    """Walmart's IR host previews the agenda before the executives speak.
+
+    "That will be followed by our question-and-answer session" is a forward
+    reference, but the guard allowed only "followed by a", so this landed as
+    the boundary and put all 18k characters of executive remarks in the Q&A.
+    """
+    structured = [
+        {"speaker": "Operator", "text": "Welcome to the call. " * 10},
+        {
+            "speaker": "Dan Binder",
+            "text": "Good morning. In a few moments, Doug and Brett will provide an "
+            "update on the business. That will be followed by our "
+            "question-and-answer session. Before I turn the call over to Doug, "
+            "let me remind you of our safe harbor.",
+        },
+        {"speaker": "Doug McMillon", "text": "We expect comp sales to grow. " * 300},
+        {"speaker": "Operator", "text": "Our first question comes from Simeon Gutman."},
+        {"speaker": "Analyst", "text": "Thanks."},
+    ]
+    prepared, qa = split_call(structured, content=None)
+    assert "We expect comp sales to grow." in prepared
+    assert qa.startswith("Our first question comes from")
+
+
+def test_weak_cue_is_not_trusted_before_any_real_remarks():
+    """A weak cue that early is mis-splitting the call, whatever it says.
+
+    The structural net: an operator line plus a short host intro is not a
+    prepared-remarks section, so a weak cue sitting there can't be the
+    hand-off no matter how it's phrased.
+    """
+    structured = [
+        {"speaker": "Operator", "text": "Welcome."},
+        {"speaker": "IR", "text": "We will have a question and answer session shortly."},
+        {"speaker": "CEO", "text": "We expect revenue of $3 billion. " * 200},
+        {"speaker": "Operator", "text": "We'll now begin the question and answer session."},
+    ]
+    prepared, qa = split_call(structured, content=None)
+    assert "We expect revenue of $3 billion." in prepared
+    assert qa.startswith("We'll now begin")
+
+
+def test_strong_cue_is_trusted_even_with_short_prepared_remarks():
+    """Only weak cues carry the length condition; strong cues are unambiguous."""
+    structured = [
+        {"speaker": "Operator", "text": "Welcome."},
+        {"speaker": "CFO", "text": "We expect revenue of $3 billion."},
+        {"speaker": "Operator", "text": "We'll now begin the question and answer session."},
+    ]
+    prepared, qa = split_call(structured, content=None)
+    assert prepared.endswith("We expect revenue of $3 billion.")
+    assert qa.startswith("We'll now begin")
