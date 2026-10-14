@@ -183,3 +183,70 @@ def test_fabricated_quote_is_dropped_after_merge():
     assert results[0].dropped_items == 1
     assert results[0].extraction.items == []
     assert results[0].extraction.no_guidance_given is False
+
+
+def _two_item_json(good_quote):
+    """One usable revenue figure plus one item the schema refuses.
+
+    The second is a quarter that doesn't say which quarter -- real output, and
+    seven of thirty-five figures in an extraction run looked like this.
+    """
+    return json.dumps(
+        {
+            "ticker": "NVDA",
+            "no_guidance_given": False,
+            "extraction_notes": None,
+            "items": [
+                {
+                    "metric": "revenue",
+                    "metric_detail": None,
+                    "period": {
+                        "kind": "quarter",
+                        "fiscal_year": 2021,
+                        "fiscal_quarter": 1,
+                    },
+                    "low": 2.94,
+                    "high": 3.06,
+                    "unit": "usd_billions",
+                    "basis": "unspecified",
+                    "quote": good_quote,
+                    "speaker": None,
+                    "confidence": 0.9,
+                },
+                {
+                    "metric": "revenue",
+                    "metric_detail": None,
+                    "period": {
+                        "kind": "quarter",
+                        "fiscal_year": 2016,
+                        "fiscal_quarter": None,
+                    },
+                    "low": 11.9,
+                    "high": 12.0,
+                    "unit": "usd_billions",
+                    "basis": "unspecified",
+                    "quote": good_quote,
+                    "speaker": None,
+                    "confidence": 0.9,
+                },
+            ],
+        }
+    )
+
+
+def test_one_unusable_item_does_not_sink_the_window():
+    """The batch path validated the whole payload while the interactive path
+    dropped items individually, so a batch lost strictly more -- and there's
+    no repair loop here to recover it."""
+    t = _transcript("NVDA-2020Q4", "NVDA", FILLER + GUIDANCE + FILLER)
+    quote = "We expect revenue to be $3 billion plus or minus 2%."
+    client = StubClient([_result("NVDA-2020Q4#0", text=_two_item_json(quote))])
+
+    results, failures = collect_results("batch_test", [t], client=client)
+
+    assert len(results) == 1
+    assert len(results[0].extraction.items) == 1
+    assert results[0].extraction.items[0].period.label() == "FY2021Q1"
+    # The drop is counted and reported, not silent.
+    assert results[0].dropped_items == 1
+    assert any("dropped 1 unusable item" in f.error for f in failures)

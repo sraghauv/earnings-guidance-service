@@ -147,7 +147,9 @@ labeled calls is not enough to read small differences into.
 The failures are the model, not the retrieval. All five of Microsoft's guided
 figures sit inside the 6,859 characters the windower hands over, and the model
 returns one item with a null bound and a fiscal year four years off. Apple is
-the same: OpEx, tax rate and OI&E are all in the window and none come back.
+the same: OpEx, tax rate and OI&E are all in the window and none come back —
+and after the boilerplate fix Apple's windows grew from 27% to 36% of the
+call, 33% more text in front of the model, with every score unchanged.
 NVIDIA's outlook is a tight labeled paragraph and the model does roughly half
 of it correctly, which is the pattern -- it reads a dense list of figures and
 loses track of prose with numbers scattered through it.

@@ -33,6 +33,7 @@ from egs.extract.pipeline import (
     drop_fabricated_quotes,
     full_text,
     merge_windows,
+    parse_lenient,
 )
 from egs.extract.windows import guidance_windows
 from egs.llm.anthropic_provider import MAX_TOKENS
@@ -115,6 +116,7 @@ def collect_results(
     per_transcript: dict[str, list[GuidanceExtraction]] = {}
     failures: list[BatchFailure] = []
     model_used: dict[str, str] = {}
+    dropped_on_parse: dict[str, int] = {}
 
     for result in client.messages.batches.results(batch_id):
         transcript_id, _, window_index = result.custom_id.partition("#")
@@ -159,7 +161,11 @@ def collect_results(
             continue
 
         try:
-            extraction = GuidanceExtraction.model_validate_json(text)
+            # Same leniency as the interactive path: one unusable item drops
+            # itself, not the whole window. There's no repair loop here to
+            # recover from an all-or-nothing rejection, so whole-payload
+            # validation cost strictly more in a batch than interactively.
+            extraction, item_drops = parse_lenient(text)
         except ValidationError as e:
             failures.append(
                 BatchFailure(
@@ -169,6 +175,16 @@ def collect_results(
             )
             continue
 
+        if item_drops:
+            failures.append(
+                BatchFailure(
+                    transcript_id=transcript.id,
+                    error=f"{where}: dropped {item_drops} unusable item(s)",
+                )
+            )
+        dropped_on_parse[transcript.id] = (
+            dropped_on_parse.get(transcript.id, 0) + item_drops
+        )
         per_transcript.setdefault(transcript.id, []).append(extraction)
         model_used[transcript.id] = message.model
 
@@ -176,7 +192,10 @@ def collect_results(
     for transcript_id, extractions in per_transcript.items():
         transcript = by_id[transcript_id]
         extraction = merge_windows(extractions, ticker=transcript.ticker)
-        extraction, dropped = drop_fabricated_quotes(extraction, full_text(transcript))
+        extraction, quote_drops = drop_fabricated_quotes(
+            extraction, full_text(transcript)
+        )
+        dropped = quote_drops + dropped_on_parse.get(transcript_id, 0)
 
         if conn is not None:
             db.save_extraction(
